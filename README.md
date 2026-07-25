@@ -34,20 +34,24 @@ npm run build
 
 ## 배포 (Cloudflare Pages)
 
+이 프로젝트는 wrangler.toml 없이 배포합니다(변수·바인딩을 Cloudflare 대시보드에서 관리하기 위함).
+
 ```bash
 npm run build
-npx wrangler pages deploy dist
-npx wrangler d1 migrations apply ax-workbench --remote
+npx wrangler pages deploy dist --project-name ax-workbench --branch master
 ```
+
+master 푸시 시 GitHub Actions(.github/workflows/deploy.yml)가 같은 명령으로 자동 배포합니다
+(저장소 시크릿 `CLOUDFLARE_API_TOKEN` 등록 필요).
 
 ### 라이브 AI 전환
 
 기본 상태에서는 큐레이션된 샘플 응답(데모 모드)으로 전체 흐름을 시연합니다.
-Cloudflare Pages 프로젝트에 시크릿을 등록하면 같은 화면이 Claude Opus 4.8 라이브 생성으로 전환됩니다.
+Cloudflare 대시보드 → Workers & Pages → ax-workbench → Settings → **Variables and secrets**에서
+`CLAUDE_API_KEY`(Secret 타입)를 추가하고 재배포하면 같은 화면이 Claude Opus 4.8 라이브 생성으로 전환됩니다.
 
-```bash
-npx wrangler pages secret put CLAUDE_API_KEY --project-name ax-workbench
-```
+같은 화면의 **Bindings**에 D1 바인딩(변수명 `DB`, 데이터베이스 `ax-workbench`)이 있어야
+API 레이트리밋이 동작합니다(없어도 앱은 동작하며, 제한만 걸리지 않습니다).
 
 ## 문서
 

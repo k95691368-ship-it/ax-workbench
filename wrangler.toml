@@ -1,8 +1,0 @@
-name = "ax-workbench"
-compatibility_date = "2025-01-01"
-pages_build_output_dir = "dist"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "ax-workbench"
-database_id = "c4f365ce-17a0-4a4c-b4cb-57f039590701"
