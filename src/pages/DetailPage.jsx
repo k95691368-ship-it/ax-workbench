@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
-import { DP_THEMES, getTheme } from '../lib/themes.js'
+import { DP_THEMES, getTheme, orbStyle, makeCustomTheme, fileToResizedDataUrl } from '../lib/themes.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
@@ -24,34 +24,57 @@ const LOADING_STEPS = [
 function buildHtml(result, product, theme) {
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const t = theme || getTheme('green')
+  const orbs = (t.orbs || [])
+    .map((o) => {
+      const pos = [
+        o.top != null ? `top:${o.top}px;` : '',
+        o.bottom != null ? `bottom:${o.bottom}px;` : '',
+        o.left != null ? `left:${o.left}px;` : '',
+        o.right != null ? `right:${o.right}px;` : '',
+      ].join('')
+      return `<i style="position:absolute;${pos}width:${o.size}px;height:${o.size}px;border-radius:50%;background:${o.bg};${o.blur ? `filter:blur(${o.blur}px);` : ''}"></i>`
+    })
+    .join('')
+  const cardStyle = t.card
+    ? `background:${t.card.bg};border-radius:${t.card.radius}px;${t.card.border ? `border:${t.card.border};` : ''}${t.card.shadow ? `box-shadow:${t.card.shadow};` : ''}${t.card.blur ? `-webkit-backdrop-filter:blur(${t.card.blur}px);backdrop-filter:blur(${t.card.blur}px);` : ''}margin:16px auto;max-width:720px;padding:32px 24px;`
+    : 'padding:48px 24px;max-width:720px;margin:0 auto;border-bottom:1px solid rgba(128,128,128,.18);'
+  const headingStyle = t.headingClip
+    ? `font-size:24px;background:${t.headingClip};-webkit-background-clip:text;background-clip:text;color:transparent;`
+    : `font-size:24px;color:${t.heading};`
   const sections = (result.sections || [])
     .map(
       (s) => `
-  <section style="padding:48px 24px;max-width:720px;margin:0 auto;border-bottom:1px solid #eee;">
-    <h2 style="font-size:24px;color:${t.heading};">${esc(s.title)}</h2>
-    <p style="font-size:16px;line-height:1.8;color:#333;">${esc(s.body)}</p>
-    ${(s.bullets || []).length ? `<ul>${s.bullets.map((b) => `<li style="line-height:1.9;">${esc(b)}</li>`).join('')}</ul>` : ''}
-    <p style="font-size:12px;color:#999;background:#f6f6f6;padding:8px 12px;border-radius:6px;">[이미지 지시] ${esc(s.image_brief)}</p>
+  <section style="${cardStyle}">
+    <h2 style="${headingStyle}">${esc(s.title)}</h2>
+    <p style="font-size:16px;line-height:1.8;color:${t.text};">${esc(s.body)}</p>
+    ${(s.bullets || []).length ? `<ul style="color:${t.text};">${s.bullets.map((b) => `<li style="line-height:1.9;">${esc(b)}</li>`).join('')}</ul>` : ''}
+    <p style="font-size:12px;color:${t.briefText};background:${t.briefBg};padding:8px 12px;border-radius:6px;">[이미지 지시] ${esc(s.image_brief)}</p>
   </section>`
     )
     .join('')
   const faq = (result.faq || [])
-    .map((f) => `<dt style="font-weight:700;margin-top:16px;">Q. ${esc(f.q)}</dt><dd style="margin:4px 0 0;color:#444;line-height:1.7;">A. ${esc(f.a)}</dd>`)
+    .map(
+      (f) =>
+        `<dt style="font-weight:700;margin-top:16px;color:${t.faqQ};">Q. ${esc(f.q)}</dt><dd style="margin:4px 0 0;color:${t.faqA};line-height:1.7;">A. ${esc(f.a)}</dd>`
+    )
     .join('')
   return `<!doctype html>
 <html lang="ko">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(product.name)} 상세페이지 초안</title></head>
-<body style="margin:0;font-family:Pretendard,'Malgun Gothic',sans-serif;background:${t.surface};">
-  <header style="background:${t.accent};color:#fff;text-align:center;padding:72px 24px;">
-    <h1 style="font-size:30px;margin:0 0 12px;">${esc(result.headline)}</h1>
-    <p style="font-size:17px;opacity:.85;margin:0;">${esc(result.subheadline)}</p>
+<body style="margin:0;font-family:Pretendard,'Malgun Gothic',sans-serif;background:${t.bodyBg};">
+  <header style="position:relative;overflow:hidden;background:${t.heroBg};color:${t.heroText};text-align:center;padding:72px 24px;">
+    ${orbs}
+    <div style="position:relative;z-index:1;">
+      <h1 style="font-size:30px;margin:0 0 12px;">${esc(result.headline)}</h1>
+      <p style="font-size:17px;opacity:.85;margin:0;">${esc(result.subheadline)}</p>
+    </div>
   </header>
   ${sections}
-  <section style="padding:48px 24px;max-width:720px;margin:0 auto;">
-    <h2 style="font-size:22px;color:${t.heading};">자주 묻는 질문</h2>
+  <section style="${cardStyle}">
+    <h2 style="${headingStyle.replace('font-size:24px', 'font-size:22px')}">자주 묻는 질문</h2>
     <dl>${faq}</dl>
   </section>
-  <footer style="background:${t.footer};padding:24px;text-align:center;font-size:12px;color:#888;">
+  <footer style="background:${t.footerBg};padding:24px;text-align:center;font-size:12px;color:${t.footerText};">
     본 문서는 AI가 생성한 초안입니다 · 디자인 테마: ${esc(t.label)} · 디자이너 메모: ${esc(result.designer_notes)}
   </footer>
 </body></html>`
@@ -84,10 +107,51 @@ export default function DetailPage() {
   const [revising, setRevising] = useState(false)
   const [viewport, setViewport] = useState('mobile')
   const [copied, setCopied] = useState('')
+  const [customImage, setCustomImage] = useState(null)
   const resultRef = useRef(null)
+  const imgInputRef = useRef(null)
 
   const result = versions[activeVer] || null
-  const theme = getTheme(themeId)
+  const theme = themeId === 'custom' && customImage ? makeCustomTheme(customImage) : getTheme(themeId)
+
+  // 테마 카드(글래스 등)·그라데이션 제목을 미리보기에 그대로 적용하기 위한 인라인 스타일
+  const cardInline = theme.card
+    ? {
+        background: theme.card.bg,
+        borderRadius: theme.card.radius,
+        border: theme.card.border,
+        boxShadow: theme.card.shadow,
+        backdropFilter: theme.card.blur ? `blur(${theme.card.blur}px)` : undefined,
+        WebkitBackdropFilter: theme.card.blur ? `blur(${theme.card.blur}px)` : undefined,
+        margin: '14px',
+        borderBottom: 'none',
+      }
+    : undefined
+  const headingInline = theme.headingClip
+    ? { backgroundImage: theme.headingClip, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }
+    : undefined
+
+  async function onPickImage(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('이미지 파일만 사용할 수 있습니다.')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError('이미지가 너무 큽니다(8MB 이하). 작은 파일로 시도해주세요.')
+      return
+    }
+    try {
+      const dataUrl = await fileToResizedDataUrl(file)
+      setCustomImage(dataUrl)
+      setThemeId('custom')
+      setError('')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -305,10 +369,28 @@ export default function DetailPage() {
                       title={t.desc}
                       onClick={() => setThemeId(t.id)}
                     >
-                      <span className="theme-dot" style={{ background: t.accent }} aria-hidden="true" />
+                      <span className="theme-dot" style={{ background: t.heroBg }} aria-hidden="true" />
                       {t.label}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className={themeId === 'custom' ? 'theme-chip active' : 'theme-chip'}
+                    title="내 이미지를 배경으로 사용 (서버 업로드 없음 — 브라우저에서만 처리)"
+                    onClick={() => imgInputRef.current?.click()}
+                  >
+                    <span
+                      className="theme-dot"
+                      style={
+                        customImage
+                          ? { backgroundImage: `url(${customImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+                          : { background: '#94a3b8' }
+                      }
+                      aria-hidden="true"
+                    />
+                    📷 내 이미지
+                  </button>
+                  <input ref={imgInputRef} type="file" accept="image/*" hidden onChange={onPickImage} />
                 </div>
               </div>
 
@@ -316,17 +398,28 @@ export default function DetailPage() {
                 {viewport === 'mobile' && <div className="dp-frame-notch" aria-hidden="true" />}
                 <article
                   className="dp-preview"
-                  style={{ '--dp-accent': theme.accent, '--dp-heading': theme.heading, '--dp-surface': theme.surface }}
+                  style={{
+                    '--dp-surface': theme.bodyBg,
+                    '--dp-heading': theme.heading,
+                    '--dp-text': theme.text,
+                    '--dp-brief-bg': theme.briefBg,
+                    '--dp-brief-text': theme.briefText,
+                    '--dp-faq-q': theme.faqQ,
+                    '--dp-faq-a': theme.faqA,
+                  }}
                   aria-label="상세페이지 미리보기"
                 >
-                  <header className="dp-hero">
+                  <header className="dp-hero" style={{ background: theme.heroBg, color: theme.heroText }}>
+                    {(theme.orbs || []).map((o, i) => (
+                      <i className="dp-orb" key={i} style={orbStyle(o)} aria-hidden="true" />
+                    ))}
                     <h2>{result.headline}</h2>
                     <p>{result.subheadline}</p>
                   </header>
                   {(result.sections || []).map((s, i) => (
-                    <section className="dp-section" key={i}>
+                    <section className="dp-section" style={cardInline} key={i}>
                       <div className="dp-section-head">
-                        <h3>{s.title}</h3>
+                        <h3 style={headingInline}>{s.title}</h3>
                         <button
                           type="button"
                           className="copy-mini"
@@ -347,8 +440,8 @@ export default function DetailPage() {
                     </section>
                   ))}
                   {(result.faq || []).length > 0 && (
-                    <section className="dp-section">
-                      <h3>자주 묻는 질문</h3>
+                    <section className="dp-section" style={cardInline}>
+                      <h3 style={headingInline}>자주 묻는 질문</h3>
                       {result.faq.map((f, i) => (
                         <div className="dp-faq" key={i}>
                           <p className="dp-faq-q">Q. {f.q}</p>

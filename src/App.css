@@ -986,6 +986,20 @@
   color: #fff;
   text-align: center;
   padding: 44px 28px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dp-hero h2,
+.dp-hero p {
+  position: relative;
+  z-index: 1;
+}
+
+.dp-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .dp-hero h2 {
@@ -1110,19 +1124,20 @@
 
 .dp-section p {
   font-size: 14.5px;
-  color: var(--ink-600);
+  color: var(--dp-text, var(--ink-600));
 }
 
 .dp-section ul {
   margin: 8px 0;
   padding-left: 18px;
   font-size: 14px;
+  color: var(--dp-text, inherit);
 }
 
 .dp-image-brief {
   font-size: 12.5px !important;
-  color: var(--ink-400) !important;
-  background: var(--page);
+  color: var(--dp-brief-text, var(--ink-400)) !important;
+  background: var(--dp-brief-bg, var(--page));
   padding: 8px 12px;
   border-radius: 8px;
   margin: 10px 0 0 !important;
@@ -1135,6 +1150,11 @@
 .dp-faq-q {
   font-weight: 700;
   margin-bottom: 2px;
+  color: var(--dp-faq-q, inherit);
+}
+
+.dp-faq-a {
+  color: var(--dp-faq-a, var(--ink-600));
 }
 
 .dp-faq-a {
