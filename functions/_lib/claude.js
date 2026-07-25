@@ -33,16 +33,33 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
   }
 
   const data = await res.json()
+  // max_tokens로 잘린 tool 입력은 불완전한 JSON일 수 있으므로 toolUse 존재 여부와 무관하게 거부한다.
+  if (data.stop_reason === 'max_tokens') {
+    throw new Error('AI 응답이 너무 길어 중단되었습니다. 입력을 줄여 다시 시도해주세요.')
+  }
   const toolUse = Array.isArray(data.content)
     ? data.content.find((block) => block.type === 'tool_use')
     : null
   if (!toolUse || typeof toolUse.input !== 'object' || toolUse.input === null) {
-    if (data.stop_reason === 'max_tokens') {
-      throw new Error('AI 응답이 너무 길어 중단되었습니다. 입력을 줄여 다시 시도해주세요.')
-    }
     throw new Error('AI 응답에서 결과를 찾을 수 없습니다. 잠시 후 다시 시도해주세요.')
   }
   return toolUse.input
+}
+
+// live 응답이 프론트가 기대하는 계약(필수 배열/문자열)을 지키는지 검증한다.
+// tool_choice 강제로도 스키마 준수가 보장되지 않으므로, 어긴 응답은 502로 돌려보낸다.
+export function ensureContract(input, { arrays = [], strings = [] } = {}) {
+  for (const key of arrays) {
+    if (!Array.isArray(input[key])) {
+      throw new Error(`AI 응답이 불완전합니다(${key} 누락). 다시 시도해주세요.`)
+    }
+  }
+  for (const key of strings) {
+    if (typeof input[key] !== 'string' || !input[key].trim()) {
+      throw new Error(`AI 응답이 불완전합니다(${key} 누락). 다시 시도해주세요.`)
+    }
+  }
+  return input
 }
 
 // 공용 표시광고 안전 규칙 — 모든 생성 프롬프트에 포함

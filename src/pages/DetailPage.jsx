@@ -98,17 +98,22 @@ export default function DetailPage() {
   }
 
   async function copyText(key, text) {
-    await navigator.clipboard.writeText(text)
-    setCopied(key)
-    setTimeout(() => setCopied(''), 1500)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied(''), 1500)
+    } catch {
+      setError('클립보드 복사에 실패했습니다. 내용을 드래그해서 복사해주세요.')
+    }
   }
 
   function download() {
+    const safeName = (form.name || '제품').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
     const blob = new Blob([buildHtml(result, form)], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `상세페이지_초안_${form.name || '제품'}.html`
+    a.download = `상세페이지_초안_${safeName}.html`
     a.click()
     URL.revokeObjectURL(url)
   }

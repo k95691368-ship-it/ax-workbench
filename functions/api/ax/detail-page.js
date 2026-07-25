@@ -1,6 +1,6 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 
 const TOOL = {
   name: 'record_detail_page',
@@ -97,7 +97,8 @@ function demoResult(input) {
 export async function onRequestPost(context) {
   const { request, env } = context
   const body = await readJsonBody(request)
-  if (!body || !body.name?.trim()) return errorJson('제품명을 입력해주세요.')
+  if (!body || typeof body.name !== 'string' || !body.name.trim())
+    return errorJson('제품명을 입력해주세요.')
 
   const input = {
     name: String(body.name).slice(0, 100),
@@ -121,6 +122,10 @@ export async function onRequestPost(context) {
       user: `[제품 정보]\n${JSON.stringify(input, null, 2)}`,
       tool: TOOL,
       maxTokens: 4096,
+    })
+    ensureContract(result, {
+      arrays: ['sections', 'faq', 'keywords'],
+      strings: ['headline', 'subheadline', 'designer_notes'],
     })
     return json({ demo: false, ...result })
   } catch (err) {

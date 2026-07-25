@@ -1,6 +1,6 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, hasApiKey } from '../../_lib/claude.js'
+import { callClaudeTool, ensureContract, hasApiKey } from '../../_lib/claude.js'
 
 const TOOL = {
   name: 'record_sales_report',
@@ -92,6 +92,10 @@ export async function onRequestPost(context) {
       user: `[판매 데이터 집계]\n${JSON.stringify(compact, null, 2)}`,
       tool: TOOL,
       maxTokens: 2048,
+    })
+    ensureContract(result, {
+      arrays: ['insights', 'actions', 'risks'],
+      strings: ['headline', 'summary'],
     })
     return json({ demo: false, ...result })
   } catch (err) {

@@ -4,7 +4,14 @@ import { scanText, BANNED_RULES } from '../src/lib/compliance.js'
 describe('scanText', () => {
   it('질병 예방·치료 표현을 높음 위험도로 잡는다', () => {
     const findings = scanText('변비 치료에 좋은 유산균')
-    expect(findings.some((f) => f.word === '치료' && f.severity === 'high')).toBe(true)
+    expect(findings.some((f) => f.word.includes('치료') && f.severity === 'high')).toBe(true)
+  })
+
+  it('겹치는 금칙어는 더 긴 표현 하나로만 보고한다', () => {
+    const findings = scanText('변비 치료에 좋은')
+    const words = findings.map((f) => f.word)
+    expect(words).toContain('변비 치료')
+    expect(words).not.toContain('치료')
   })
 
   it('최상급 표현을 주의로 잡는다', () => {

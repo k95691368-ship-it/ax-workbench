@@ -2,6 +2,15 @@
 // D1 바인딩이 없으면(로컬 미설정 등) 제한 없이 통과시킨다.
 export async function checkRateLimit(env, bucket, maxHits, windowSeconds) {
   if (!env.DB) return true
+  try {
+    return await checkRateLimitInner(env, bucket, maxHits, windowSeconds)
+  } catch {
+    // D1 오류(테이블 미생성 등)가 API 전체를 500으로 만들지 않도록 fail-open
+    return true
+  }
+}
+
+async function checkRateLimitInner(env, bucket, maxHits, windowSeconds) {
   await env.DB.prepare(
     `DELETE FROM rate_limit_hits WHERE bucket = ? AND created_at < datetime('now', '-' || ? || ' seconds')`
   )

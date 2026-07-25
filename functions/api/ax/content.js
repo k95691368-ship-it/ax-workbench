@@ -1,6 +1,6 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 
 const CHANNEL_SPECS = {
   instagram: '인스타그램 피드: 첫 줄 후킹 + 본문 3~5줄 + 해시태그 8~12개. 이모지 적절히.',
@@ -87,7 +87,8 @@ function demoResult(channels) {
 export async function onRequestPost(context) {
   const { request, env } = context
   const body = await readJsonBody(request)
-  if (!body || !body.product?.name?.trim()) return errorJson('제품 정보를 입력해주세요.')
+  if (!body || typeof body.product?.name !== 'string' || !body.product.name.trim())
+    return errorJson('제품 정보를 입력해주세요.')
   const channels = Array.isArray(body.channels)
     ? body.channels.filter((c) => CHANNEL_SPECS[c]).slice(0, 6)
     : []
@@ -117,6 +118,12 @@ export async function onRequestPost(context) {
       tool: TOOL,
       maxTokens: 8192,
     })
+    ensureContract(result, { arrays: ['results'] })
+    result.results = result.results.filter(
+      (r) => r && typeof r.channel === 'string' && typeof r.title === 'string' && typeof r.body === 'string'
+    )
+    if (result.results.length === 0)
+      return errorJson('AI 응답이 불완전합니다. 다시 시도해주세요.', 502)
     return json({ demo: false, ...result })
   } catch (err) {
     return errorJson(err.message, 502)

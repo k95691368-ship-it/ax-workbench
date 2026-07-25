@@ -11,13 +11,13 @@ function parseCardSlides(body) {
 
 function parseScenes(body) {
   const lines = body.split('\n').filter((l) => l.trim())
-  const scenes = lines
-    .map((l) => {
-      const m = l.match(/^(\d+\s*-\s*\d+초)\s*:\s*([\s\S]*)$/)
-      return m ? { time: m[1].replace(/\s/g, ''), text: m[2].trim() } : null
-    })
-    .filter(Boolean)
-  return scenes.length >= 2 ? scenes : null
+  // "0-3초:", "0~3 초 :" 등 흔한 변형을 허용하고, 시간 표기가 없는 줄도
+  // 버리지 않고 빈 타임 셀로 함께 보여준다 (내용 유실 방지).
+  const scenes = lines.map((l) => {
+    const m = l.match(/^(\d+\s*[-~]\s*\d+\s*초)\s*:\s*([\s\S]*)$/)
+    return m ? { time: m[1].replace(/\s/g, ''), text: m[2].trim() } : { time: '', text: l.trim() }
+  })
+  return scenes.filter((s) => s.time).length >= 2 ? scenes : null
 }
 
 export function InstagramMock({ title, body, hashtags }) {

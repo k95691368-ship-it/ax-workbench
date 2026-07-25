@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
-import { parseCsv, normalizeSales, aggregate, weekdayAverages } from '../lib/csv.js'
+import { parseCsv, normalizeSales, aggregate, weekdayAverages, decodeCsvBuffer } from '../lib/csv.js'
 import { SAMPLE_CSV } from '../lib/sampleSales.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 
@@ -11,17 +11,17 @@ function buildReportMd(report, period, channel) {
     `# 주간 매출 리포트 (${period})`,
     channel !== 'all' ? `> 채널: ${channel}` : '> 채널: 전체',
     '',
-    `## ${report.headline}`,
-    report.summary,
+    `## ${report.headline || '주간 리포트'}`,
+    report.summary || '',
     '',
     '## 인사이트',
-    ...report.insights.map((s) => `- ${s}`),
+    ...(report.insights || []).map((s) => `- ${s}`),
     '',
     '## 이번 주 실행 제안',
-    ...report.actions.map((s) => `- ${s}`),
+    ...(report.actions || []).map((s) => `- ${s}`),
     '',
     '## 리스크',
-    ...report.risks.map((s) => `- ${s}`),
+    ...(report.risks || []).map((s) => `- ${s}`),
   ].join('\n')
 }
 
@@ -93,7 +93,8 @@ function DailyBarChart({ byDate, anomalies }) {
             <span>{fmt(hover.value)}원</span>
             {anomalyMap.get(hover.date) && (
               <span className={anomalyMap.get(hover.date).direction === 'spike' ? 'tip-up' : 'tip-down'}>
-                {anomalyMap.get(hover.date).direction === 'spike' ? '▲ 급증' : '▼ 급감'} (일평균의 {anomalyMap.get(hover.date).ratio}%)
+                {anomalyMap.get(hover.date).direction === 'spike' ? '▲ 급증' : '▼ 급감'}
+                {anomalyMap.get(hover.date).ratio != null && ` (일평균의 ${anomalyMap.get(hover.date).ratio}%)`}
               </span>
             )}
           </div>
@@ -134,6 +135,7 @@ export default function SalesPage() {
   const [loading, setLoading] = useState(false)
   const [copiedMd, setCopiedMd] = useState(false)
   const fileRef = useRef(null)
+  const channelRef = useRef('all')
 
   const channels = useMemo(
     () => (records ? [...new Set(records.map((r) => r.channel))].sort() : []),
@@ -153,6 +155,7 @@ export default function SalesPage() {
     setError('')
     setReport(null)
     setChannel('all')
+    channelRef.current = 'all'
     try {
       setRecords(normalizeSales(parseCsv(text)))
     } catch (err) {
@@ -163,6 +166,7 @@ export default function SalesPage() {
 
   function pickChannel(c) {
     setChannel(c)
+    channelRef.current = c
     setReport(null)
   }
 
@@ -184,10 +188,14 @@ export default function SalesPage() {
 
   function onFile(e) {
     const file = e.target.files?.[0]
+    // 같은 파일을 다시 선택해도 change가 발화하도록 value를 비워둔다
+    e.target.value = ''
     if (!file) return
     const reader = new FileReader()
-    reader.onload = () => loadText(String(reader.result))
-    reader.readAsText(file)
+    // ArrayBuffer로 읽어 UTF-8/CP949(한국 Excel 기본)를 자동 판별해 디코딩
+    reader.onload = () => loadText(decodeCsvBuffer(reader.result))
+    reader.onerror = () => setError('파일을 읽지 못했습니다. 다시 시도해주세요.')
+    reader.readAsArrayBuffer(file)
   }
 
   function downloadSample() {
@@ -203,8 +211,11 @@ export default function SalesPage() {
   async function makeReport() {
     setLoading(true)
     setError('')
+    const scope = channel
     try {
-      setReport(await postJson('/api/ax/sales-report', { summary }))
+      const data = await postJson('/api/ax/sales-report', { summary })
+      // 응답 대기 중 필터가 바뀌었으면 다른 범위의 리포트이므로 버린다
+      setReport((prev) => (scope === channelRef.current ? data : prev))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -333,19 +344,19 @@ export default function SalesPage() {
             <section>
               <h3>인사이트</h3>
               <ul className="plain-list">
-                {report.insights.map((s) => <li key={s}>{s}</li>)}
+                {(report.insights || []).map((s) => <li key={s}>{s}</li>)}
               </ul>
             </section>
             <section>
               <h3>이번 주 실행 제안</h3>
               <ul className="plain-list">
-                {report.actions.map((s) => <li key={s}>{s}</li>)}
+                {(report.actions || []).map((s) => <li key={s}>{s}</li>)}
               </ul>
             </section>
             <section>
               <h3>리스크</h3>
               <ul className="plain-list warn-list">
-                {report.risks.map((s) => <li key={s}>{s}</li>)}
+                {(report.risks || []).map((s) => <li key={s}>{s}</li>)}
               </ul>
             </section>
           </div>

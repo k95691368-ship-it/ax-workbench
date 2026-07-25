@@ -35,6 +35,7 @@ export const BANNED_RULES = [
 ]
 
 // 텍스트에서 금칙어 후보를 스캔해 위치와 함께 반환한다.
+// 겹치는 매치("변비 치료" 안의 "치료" 등)는 더 긴 표현 하나로만 보고한다.
 export function scanText(text) {
   const findings = []
   if (!text) return findings
@@ -55,5 +56,13 @@ export function scanText(text) {
       }
     }
   }
-  return findings.sort((a, b) => a.index - b.index)
+  findings.sort((a, b) => a.index - b.index || b.word.length - a.word.length)
+  const deduped = []
+  let lastEnd = -1
+  for (const f of findings) {
+    if (f.index < lastEnd) continue
+    deduped.push(f)
+    lastEnd = f.index + f.word.length
+  }
+  return deduped
 }

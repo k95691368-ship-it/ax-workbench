@@ -59,7 +59,12 @@ export default function ListingPage() {
     setLoading(true)
     setError('')
     try {
-      setResult(await postJson('/api/ax/listing', form))
+      const data = await postJson('/api/ax/listing', form)
+      // live 응답 필드 누락에 대비한 방어 (서버도 검증하지만 이중 안전망)
+      for (const key of ['titles', 'search_keywords', 'tags', 'category_paths', 'compliance_notes']) {
+        if (!Array.isArray(data[key])) data[key] = []
+      }
+      setResult(data)
     } catch (err) {
       setError(err.message)
     } finally {

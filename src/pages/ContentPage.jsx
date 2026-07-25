@@ -29,8 +29,9 @@ export default function ContentPage() {
     setError('')
     try {
       const data = await postJson('/api/ax/content', { product, channels: selected })
+      data.results = Array.isArray(data.results) ? data.results : []
       setResult(data)
-      setActiveTab(data.results?.[0]?.channel || '')
+      setActiveTab(data.results[0]?.channel || '')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -40,9 +41,13 @@ export default function ContentPage() {
 
   async function copy(item) {
     const text = `${item.title}\n\n${item.body}${item.hashtags?.length ? `\n\n${item.hashtags.map((h) => `#${h}`).join(' ')}` : ''}`
-    await navigator.clipboard.writeText(text)
-    setCopied(item.channel)
-    setTimeout(() => setCopied(''), 1500)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(item.channel)
+      setTimeout(() => setCopied(''), 1500)
+    } catch {
+      setError('클립보드 복사에 실패했습니다. 본문을 드래그해서 복사해주세요.')
+    }
   }
 
   const channelLabel = (id) => CHANNELS.find((c) => c.id === id)?.label || id
@@ -138,7 +143,7 @@ export default function ContentPage() {
                   <div className="content-card-head">
                     <h3>{active.title}</h3>
                     <div className="content-card-tools">
-                      <span className="char-count">{active.body.length.toLocaleString('ko-KR')}자</span>
+                      <span className="char-count">{String(active.body || '').length.toLocaleString('ko-KR')}자</span>
                       <button type="button" className="btn-ghost" onClick={() => copy(active)}>
                         {copied === active.channel ? '복사됨 ✓' : '본문 복사'}
                       </button>

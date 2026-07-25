@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:full": "wrangler pages dev -- npm run dev",
+    "dev:full": "npm run build && wrangler pages dev dist",
     "build": "vite build",
     "lint": "oxlint",
     "test": "vitest run",

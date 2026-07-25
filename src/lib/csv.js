@@ -1,6 +1,27 @@
 // 판매 데이터 CSV 파싱·집계 (브라우저 로컬 처리 — 서버 전송 없음)
 // 기대 컬럼: 날짜(YYYY-MM-DD), 채널, 상품명, 수량, 매출액
 
+// 한국 Excel의 기본 CSV 저장(CP949/EUC-KR)과 UTF-8을 모두 처리한다.
+// UTF-8로 엄격 디코딩이 실패하면 EUC-KR로 재시도한다. BOM은 제거.
+export function decodeCsvBuffer(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let text
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    text = new TextDecoder('euc-kr').decode(bytes)
+  }
+  return text.replace(/^﻿/, '')
+}
+
+// "2026/07/13", "2026.7.3" 등 흔한 날짜 표기를 ISO(YYYY-MM-DD)로 정규화.
+// 인식할 수 없는 형식은 원문 그대로 반환한다(해당 행은 요일 집계에서만 제외).
+export function normalizeDate(raw) {
+  const m = String(raw).trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/)
+  if (!m) return String(raw).trim()
+  return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+}
+
 export function parseCsv(text) {
   const rows = []
   let row = []
@@ -62,10 +83,15 @@ export function normalizeSales(rows) {
   }
   const records = []
   for (const row of rows.slice(1)) {
-    const amount = Number(String(row[col.amount]).replace(/[,원\s]/g, ''))
-    const qty = Number(String(row[col.qty]).replace(/[,\s]/g, ''))
-    const date = String(row[col.date]).trim()
-    if (!date || Number.isNaN(amount) || Number.isNaN(qty)) continue
+    // 통화기호(₩,$)·단위(원, 개)·쉼표를 걷어내고 숫자만 남긴다.
+    const amountStr = String(row[col.amount]).replace(/[^0-9.-]/g, '')
+    const qtyStr = String(row[col.qty]).replace(/[^0-9.-]/g, '')
+    const date = normalizeDate(row[col.date])
+    // 빈 셀은 0이 아니라 "값 없음"이므로 건너뛴다 (Number('') === 0 함정 방지)
+    if (!date || amountStr === '' || qtyStr === '') continue
+    const amount = Number(amountStr)
+    const qty = Number(qtyStr)
+    if (Number.isNaN(amount) || Number.isNaN(qty)) continue
     records.push({
       date,
       channel: String(row[col.channel]).trim() || '기타',
@@ -103,7 +129,8 @@ export function aggregate(records) {
       date,
       amount: amt,
       direction: amt > dailyAvg ? 'spike' : 'drop',
-      ratio: Math.round((amt / dailyAvg) * 100),
+      // 음수 매출(환불 집중일)에서는 백분율이 무의미하므로 표기 생략
+      ratio: amt >= 0 ? Math.round((amt / dailyAvg) * 100) : null,
     }))
 
   return { byDate, byChannel, byProduct, totalAmount, totalQty, dailyAvg, anomalies, count: records.length }
