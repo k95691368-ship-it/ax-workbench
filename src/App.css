@@ -21,6 +21,118 @@
   outline-offset: 2px;
 }
 
+/* ===== 제작기: 요건 체크리스트 + 아키텍처 ===== */
+.req-table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.req-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  min-width: 560px;
+}
+
+.req-table th,
+.req-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.req-table th {
+  color: var(--ink-400);
+  font-size: 12.5px;
+  background: var(--page);
+}
+
+.req-table tr:last-child td {
+  border-bottom: none;
+}
+
+.req-name {
+  font-weight: 700;
+  color: var(--green-700);
+}
+
+.req-link {
+  color: var(--blue-600);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.req-link:hover {
+  text-decoration: underline;
+}
+
+.req-basis {
+  color: var(--ink-600);
+}
+
+.arch {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.arch-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.arch-box {
+  flex: 1;
+  min-width: 180px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--page);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arch-box strong {
+  font-size: 14px;
+}
+
+.arch-box span {
+  font-size: 12.5px;
+  color: var(--ink-600);
+}
+
+.arch-core {
+  border-color: var(--blue-500);
+  background: var(--blue-050);
+}
+
+.arch-arrow {
+  align-self: center;
+  color: var(--ink-400);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.arch-notes {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.arch-notes p {
+  font-size: 13.5px;
+  color: var(--ink-600);
+  margin: 0 0 6px;
+}
+
 /* ===== 제작기 ===== */
 .about-section {
   margin-bottom: 36px;

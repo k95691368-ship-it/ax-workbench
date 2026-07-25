@@ -47,6 +47,39 @@ const PROCESS = [
   },
 ]
 
+const REQUIREMENTS = [
+  {
+    req: 'AI를 활용해 상품페이지 제작 가능 (필수 자격요건)',
+    proof: '/detail-page',
+    proofLabel: '상세페이지 생성기',
+    basis: '제품 정보 → 섹션 구조·카피·이미지 지시서 생성, HTML·디자인 브리프로 디자이너 인계',
+  },
+  {
+    req: '매출분석·판매통계 등 데이터 자동화',
+    proof: '/sales',
+    proofLabel: '매출 리포트',
+    basis: 'CSV 즉시 집계·차트(채널 필터·이상 감지) + AI 주간 리포트, 원본 데이터 서버 미전송',
+  },
+  {
+    req: '상품등록·검색어 최적화',
+    proof: '/listing',
+    proofLabel: '상품등록 최적화',
+    basis: '검색최적화 상품명·태그·카테고리 + 식품표시광고법 금칙어 실시간 점검',
+  },
+  {
+    req: '인스타·블로그·스레드·유튜브·틱톡 콘텐츠 생성',
+    proof: '/content',
+    proofLabel: '콘텐츠 팩토리',
+    basis: '제품 1개 → 6개 채널 문법에 맞는 콘텐츠 동시 생성, 채널 목업 미리보기',
+  },
+  {
+    req: '반복 업무 효율화 · 직원 AI 사용 교육',
+    proof: '/edu',
+    proofLabel: 'AI 교육 가이드',
+    basis: '프롬프트 패턴 4종 + 팀별(영업/마케팅/CS) 시나리오 — 교육 자료 샘플 그 자체',
+  },
+]
+
 export default function AboutPage() {
   return (
     <div className="tool-page about-page">
@@ -58,6 +91,61 @@ export default function AboutPage() {
           이력서 문장 대신, 입사 후 할 일을 미리 만들어 보여드리는 방식을 택했습니다.
         </p>
       </header>
+
+      <section className="about-section">
+        <h2>공고 요건 체크리스트 — 3분 검증용</h2>
+        <div className="req-table-wrap">
+          <table className="req-table">
+            <thead>
+              <tr>
+                <th>공고 요건</th>
+                <th>증명 데모</th>
+                <th>구현 근거</th>
+              </tr>
+            </thead>
+            <tbody>
+              {REQUIREMENTS.map((r) => (
+                <tr key={r.req}>
+                  <td className="req-name">✓ {r.req}</td>
+                  <td>
+                    <Link to={r.proof} className="req-link">
+                      {r.proofLabel} →
+                    </Link>
+                  </td>
+                  <td className="req-basis">{r.basis}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="about-section">
+        <h2>시스템 구조</h2>
+        <div className="arch">
+          <div className="arch-row">
+            <div className="arch-box">
+              <strong>브라우저 (React 19)</strong>
+              <span>폼 입력 · CSV 로컬 파싱 · 결과 렌더</span>
+            </div>
+            <span className="arch-arrow" aria-hidden="true">→</span>
+            <div className="arch-box arch-core">
+              <strong>Cloudflare Pages Functions</strong>
+              <span>입력 검증 · 레이트리밋 · 응답 계약 검증 · 금칙어 사후점검</span>
+            </div>
+            <span className="arch-arrow" aria-hidden="true">→</span>
+            <div className="arch-box">
+              <strong>Claude Opus 4.8</strong>
+              <span>tool 강제 호출 = 구조화 JSON 보장</span>
+            </div>
+          </div>
+          <div className="arch-notes">
+            <p>• <strong>D1 데이터베이스</strong> — IP별·전체·일일 예산 레이트리밋 (비용 폭주 방지)</p>
+            <p>• <strong>장애·한도 초과 시</strong> — 502 에러 대신 큐레이션된 예시 결과로 우아하게 강등 (데모 무중단)</p>
+            <p>• <strong>이중 컴플라이언스</strong> — 프롬프트에 표시광고 금지 규칙 주입 + 생성 결과를 규칙 엔진으로 재점검</p>
+          </div>
+        </div>
+      </section>
 
       <section className="about-section">
         <h2>공고 담당업무 ↔ 데모 매핑</h2>
