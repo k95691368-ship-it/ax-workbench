@@ -1,14 +1,13 @@
-# master 푸시 → 테스트/빌드 → Cloudflare Pages(ax-workbench) 자동 배포
+# 수동 실행 전용 배포 워크플로 (Actions 탭 → Run workflow)
 #
-# 활성화 조건: GitHub 저장소 Settings → Secrets and variables → Actions 에
-#   CLOUDFLARE_API_TOKEN  (Cloudflare 대시보드 → My Profile → API Tokens →
-#                          "Cloudflare Pages — Edit" 권한으로 생성)
-# 시크릿 1개를 등록하면 다음 푸시부터 자동 배포됩니다.
+# 자동 배포(푸시 시)를 켜려면:
+#   1. GitHub Settings → Secrets and variables → Actions 에 CLOUDFLARE_API_TOKEN 등록
+#      (Cloudflare 대시보드 → My Profile → API Tokens → "Cloudflare Pages — Edit" 권한)
+#   2. 아래 on: 에 push: { branches: [master] } 복원
+# 토큰 미등록 상태로 push 트리거를 켜두면 푸시마다 실패 메일이 발송되므로 수동 전용으로 둔다.
 name: Deploy to Cloudflare Pages
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
 
 jobs:
