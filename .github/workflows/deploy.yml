@@ -1,0 +1,32 @@
+# master 푸시 → 테스트/빌드 → Cloudflare Pages(ax-workbench) 자동 배포
+#
+# 활성화 조건: GitHub 저장소 Settings → Secrets and variables → Actions 에
+#   CLOUDFLARE_API_TOKEN  (Cloudflare 대시보드 → My Profile → API Tokens →
+#                          "Cloudflare Pages — Edit" 권한으로 생성)
+# 시크릿 1개를 등록하면 다음 푸시부터 자동 배포됩니다.
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 6c6e8801c6c9793a146a8d063f3a4013
+          command: pages deploy dist --project-name=ax-workbench --branch=master
