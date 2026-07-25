@@ -3,6 +3,7 @@ import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { scanText, BANNED_RULES } from '../lib/compliance.js'
 import DemoBadge from '../components/DemoBadge.jsx'
+import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
 const SAMPLE_RISKY_COPY =
   '변비 치료에 즉시 효과! 국내 1위 유일한 유산균으로 장 질병 예방과 디톡스, 독소 배출까지 한 번에. 100% 효과 보장!'
@@ -125,7 +126,12 @@ export default function ListingPage() {
           {loading && <div className="result-empty"><p>검색 데이터 관점에서 상품명을 조합하는 중...</p></div>}
           {result && !loading && (
             <div className="listing-result">
-              <div className="result-toolbar">{result.demo && <DemoBadge />}</div>
+              <ResultNotice text={result.notice} />
+              <div className="result-toolbar">
+                {result.demo && <DemoBadge />}
+                <AdCheckBadge findings={result.ad_check} />
+                <UsageNote usage={result.usage} />
+              </div>
               <section>
                 <h3>검색최적화 상품명 후보</h3>
                 <ol className="listing-titles">

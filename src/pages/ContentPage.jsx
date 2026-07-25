@@ -3,6 +3,7 @@ import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import ChannelPreview from '../components/ChannelPreview.jsx'
+import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
 export default function ContentPage() {
   const [product, setProduct] = useState(PRODUCT_PRESETS[0])
@@ -124,7 +125,11 @@ export default function ContentPage() {
           {loading && <div className="result-empty"><p>채널별 문법에 맞춰 콘텐츠를 쓰는 중...</p></div>}
           {result && !loading && (
             <>
-              <div className="result-toolbar">{result.demo && <DemoBadge />}</div>
+              <ResultNotice text={result.notice} />
+              <div className="result-toolbar">
+                {result.demo && <DemoBadge />}
+                <UsageNote usage={result.usage} />
+              </div>
               <div className="tab-row" role="tablist">
                 {result.results.map((r) => (
                   <button
@@ -143,6 +148,7 @@ export default function ContentPage() {
                   <div className="content-card-head">
                     <h3>{active.title}</h3>
                     <div className="content-card-tools">
+                      <AdCheckBadge findings={active.ad_check} />
                       <span className="char-count">{String(active.body || '').length.toLocaleString('ko-KR')}자</span>
                       <button type="button" className="btn-ghost" onClick={() => copy(active)}>
                         {copied === active.channel ? '복사됨 ✓' : '본문 복사'}

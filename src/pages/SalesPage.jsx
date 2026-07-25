@@ -3,6 +3,7 @@ import { postJson } from '../lib/api.js'
 import { parseCsv, normalizeSales, aggregate, weekdayAverages, decodeCsvBuffer } from '../lib/csv.js'
 import { SAMPLE_CSV } from '../lib/sampleSales.js'
 import DemoBadge from '../components/DemoBadge.jsx'
+import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
 const fmt = (n) => Math.round(n).toLocaleString('ko-KR')
 
@@ -329,8 +330,10 @@ export default function SalesPage() {
 
       {report && (
         <article className="report-card">
+          <ResultNotice text={report.notice} />
           <div className="result-toolbar">
             {report.demo && <DemoBadge />}
+            <UsageNote usage={report.usage} />
             <button type="button" className="btn-ghost" onClick={copyReportMd}>
               {copiedMd ? '복사됨 ✓' : '마크다운 복사'}
             </button>

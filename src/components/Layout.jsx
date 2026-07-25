@@ -1,4 +1,5 @@
-import { NavLink, Outlet, Link } from 'react-router-dom'
+import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
+import ErrorBoundary from './ErrorBoundary.jsx'
 
 const MENU = [
   { to: '/', label: '홈', end: true },
@@ -11,6 +12,7 @@ const MENU = [
 ]
 
 export default function Layout() {
+  const location = useLocation()
   return (
     <div className="app-shell">
       <a href="#main-content" className="skip-link">
@@ -35,7 +37,9 @@ export default function Layout() {
         </nav>
       </header>
       <main className="app-main" id="main-content">
-        <Outlet />
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
       <footer className="app-footer">
         <div className="footer-grid">

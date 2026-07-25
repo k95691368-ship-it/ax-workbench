@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
+import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
 
@@ -194,8 +195,11 @@ export default function DetailPage() {
           )}
           {result && !loading && (
             <>
+              <ResultNotice text={result.notice} />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
+                <AdCheckBadge findings={result.ad_check} />
+                <UsageNote usage={result.usage} />
                 <div className="viewport-toggle" role="group" aria-label="미리보기 크기">
                   <button
                     type="button"

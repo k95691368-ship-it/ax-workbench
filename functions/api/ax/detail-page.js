@@ -1,6 +1,16 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { checkTexts } from '../../_lib/adcheck.js'
+
+function adCheckDetail(result) {
+  return checkTexts([
+    result.headline,
+    result.subheadline,
+    ...(result.sections || []).flatMap((s) => [s.title, s.body, ...(s.bullets || [])]),
+    ...(result.faq || []).flatMap((f) => [f.q, f.a]),
+  ])
+}
 
 const TOOL = {
   name: 'record_detail_page',
@@ -108,7 +118,16 @@ export async function onRequestPost(context) {
     tone: String(body.tone || '').slice(0, 100),
   }
 
-  if (!hasApiKey(env)) return json(demoResult(input))
+  if (!hasApiKey(env)) {
+    const demo = demoResult(input)
+    return json({ ...demo, ad_check: adCheckDetail(demo) })
+  }
+
+  // 전역 일일 예산 캡 — 소진 시 서비스를 끊는 대신 예시 결과로 우아하게 강등
+  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
+    const demo = demoResult(input)
+    return json({ ...demo, ad_check: adCheckDetail(demo), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+  }
 
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:detail:${ip}`, 8, 3600)))
@@ -117,7 +136,7 @@ export async function onRequestPost(context) {
     return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
-    const result = await callClaudeTool(env, {
+    const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM,
       user: `[제품 정보]\n${JSON.stringify(input, null, 2)}`,
       tool: TOOL,
@@ -127,8 +146,10 @@ export async function onRequestPost(context) {
       arrays: ['sections', 'faq', 'keywords'],
       strings: ['headline', 'subheadline', 'designer_notes'],
     })
-    return json({ demo: false, ...result })
+    return json({ demo: false, usage, ad_check: adCheckDetail(result), ...result })
   } catch (err) {
-    return errorJson(err.message, 502)
+    // 외부 AI 장애/지연 시에도 빈 에러 화면 대신 예시 결과로 응답한다
+    const demo = demoResult(input)
+    return json({ ...demo, ad_check: adCheckDetail(demo), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

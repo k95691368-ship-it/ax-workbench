@@ -1,6 +1,11 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { checkTexts } from '../../_lib/adcheck.js'
+
+function adCheckListing(result) {
+  return checkTexts([...(result.titles || []), ...(result.search_keywords || []), ...(result.tags || [])])
+}
 
 const TOOL = {
   name: 'record_listing_optimization',
@@ -82,7 +87,15 @@ export async function onRequestPost(context) {
     features: String(body.features || '').slice(0, 500),
   }
 
-  if (!hasApiKey(env)) return json(demoResult(input))
+  if (!hasApiKey(env)) {
+    const demo = demoResult(input)
+    return json({ ...demo, ad_check: adCheckListing(demo) })
+  }
+
+  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
+    const demo = demoResult(input)
+    return json({ ...demo, ad_check: adCheckListing(demo), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+  }
 
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:listing:${ip}`, 10, 3600)))
@@ -91,7 +104,7 @@ export async function onRequestPost(context) {
     return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
-    const result = await callClaudeTool(env, {
+    const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM,
       user: `[제품 정보]\n${JSON.stringify(input, null, 2)}`,
       tool: TOOL,
@@ -100,8 +113,9 @@ export async function onRequestPost(context) {
     ensureContract(result, {
       arrays: ['titles', 'search_keywords', 'tags', 'category_paths', 'compliance_notes'],
     })
-    return json({ demo: false, ...result })
+    return json({ demo: false, usage, ad_check: adCheckListing(result), ...result })
   } catch (err) {
-    return errorJson(err.message, 502)
+    const demo = demoResult(input)
+    return json({ ...demo, ad_check: adCheckListing(demo), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

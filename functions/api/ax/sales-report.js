@@ -80,6 +80,9 @@ export async function onRequestPost(context) {
 
   if (!hasApiKey(env)) return json(demoResult(compact))
 
+  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400)))
+    return json({ ...demoResult(compact), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:sales:${ip}`, 10, 3600)))
     return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
@@ -87,7 +90,7 @@ export async function onRequestPost(context) {
     return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
-    const result = await callClaudeTool(env, {
+    const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM,
       user: `[판매 데이터 집계]\n${JSON.stringify(compact, null, 2)}`,
       tool: TOOL,
@@ -97,8 +100,8 @@ export async function onRequestPost(context) {
       arrays: ['insights', 'actions', 'risks'],
       strings: ['headline', 'summary'],
     })
-    return json({ demo: false, ...result })
+    return json({ demo: false, usage, ...result })
   } catch (err) {
-    return errorJson(err.message, 502)
+    return json({ ...demoResult(compact), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

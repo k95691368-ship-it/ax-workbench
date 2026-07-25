@@ -1,6 +1,14 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { checkTexts } from '../../_lib/adcheck.js'
+
+function withAdCheck(results) {
+  for (const r of results) {
+    r.ad_check = checkTexts([r.title, r.body, ...(r.hashtags || [])])
+  }
+  return results
+}
 
 const CHANNEL_SPECS = {
   instagram: '인스타그램 피드: 첫 줄 후킹 + 본문 3~5줄 + 해시태그 8~12개. 이모지 적절히.',
@@ -102,7 +110,15 @@ export async function onRequestPost(context) {
     tone: String(body.product.tone || '').slice(0, 100),
   }
 
-  if (!hasApiKey(env)) return json(demoResult(channels))
+  if (!hasApiKey(env)) {
+    const demo = demoResult(channels)
+    return json({ ...demo, results: withAdCheck(demo.results) })
+  }
+
+  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
+    const demo = demoResult(channels)
+    return json({ ...demo, results: withAdCheck(demo.results), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+  }
 
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:content:${ip}`, 8, 3600)))
@@ -112,20 +128,20 @@ export async function onRequestPost(context) {
 
   const specs = channels.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
   try {
-    const result = await callClaudeTool(env, {
+    const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM,
       user: `[제품 정보]\n${JSON.stringify(product, null, 2)}\n\n[요청 채널과 스펙]\n${specs}\n\n요청된 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`,
       tool: TOOL,
-      maxTokens: 8192,
+      maxTokens: 16000,
     })
     ensureContract(result, { arrays: ['results'] })
     result.results = result.results.filter(
       (r) => r && typeof r.channel === 'string' && typeof r.title === 'string' && typeof r.body === 'string'
     )
-    if (result.results.length === 0)
-      return errorJson('AI 응답이 불완전합니다. 다시 시도해주세요.', 502)
-    return json({ demo: false, ...result })
+    if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
+    return json({ demo: false, usage, ...result, results: withAdCheck(result.results) })
   } catch (err) {
-    return errorJson(err.message, 502)
+    const demo = demoResult(channels)
+    return json({ ...demo, results: withAdCheck(demo.results), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

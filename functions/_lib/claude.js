@@ -5,31 +5,48 @@ export function hasApiKey(env) {
 }
 
 // tool 강제 호출로 구조화된 JSON을 받는 공용 헬퍼.
-// 반환값: tool_use 블록의 input 객체.
+// 반환값: { input: tool_use 블록의 input 객체, usage: 토큰 사용량 }
 export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096 }) {
   const apiKey = env.CLAUDE_API_KEY
   if (!apiKey) throw new Error('CLAUDE_API_KEY가 설정되지 않았습니다.')
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: user }],
-      tools: [tool],
-      tool_choice: { type: 'tool', name: tool.name },
-    }),
-  })
+  const doFetch = () =>
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      // 외부 API 지연이 Functions 실행 한도까지 매달리지 않게 타임아웃을 건다
+      signal: AbortSignal.timeout(40000),
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content: user }],
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+      }),
+    })
+
+  let res
+  try {
+    res = await doFetch()
+    // 일시적 과부하(429/529/5xx)는 짧게 기다렸다 1회 재시도
+    if (res.status === 429 || res.status >= 500) {
+      await new Promise((r) => setTimeout(r, 1500))
+      res = await doFetch()
+    }
+  } catch (err) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      throw new Error('AI 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.')
+    }
+    throw err
+  }
 
   if (!res.ok) {
-    const errText = await res.text()
-    throw new Error(`Claude API 오류 (${res.status}): ${errText.slice(0, 300)}`)
+    throw new Error(`AI 서비스가 혼잡합니다 (${res.status}). 잠시 후 다시 시도해주세요.`)
   }
 
   const data = await res.json()
@@ -43,7 +60,10 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
   if (!toolUse || typeof toolUse.input !== 'object' || toolUse.input === null) {
     throw new Error('AI 응답에서 결과를 찾을 수 없습니다. 잠시 후 다시 시도해주세요.')
   }
-  return toolUse.input
+  const usage = data.usage
+    ? { input_tokens: data.usage.input_tokens, output_tokens: data.usage.output_tokens }
+    : null
+  return { input: toolUse.input, usage }
 }
 
 // live 응답이 프론트가 기대하는 계약(필수 배열/문자열)을 지키는지 검증한다.
