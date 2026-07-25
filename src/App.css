@@ -978,11 +978,11 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   overflow: hidden;
-  background: #fff;
+  background: var(--dp-surface, #fff);
 }
 
 .dp-hero {
-  background: var(--green-700);
+  background: var(--dp-accent, var(--green-700));
   color: #fff;
   text-align: center;
   padding: 44px 28px;
@@ -1005,7 +1005,107 @@
 
 .dp-section h3 {
   font-size: 18px;
-  color: var(--green-700);
+  color: var(--dp-heading, var(--green-700));
+}
+
+/* 버전 히스토리 · 디자인 테마 · 피드백 */
+.dp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-bottom: 12px;
+}
+
+.ver-row,
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.theme-row-label {
+  font-size: 12.5px;
+  color: var(--ink-400);
+  font-weight: 700;
+}
+
+.ver-chip,
+.theme-chip {
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ver-chip.active,
+.theme-chip.active {
+  border-color: var(--blue-500);
+  background: var(--blue-050);
+  color: var(--blue-600);
+}
+
+.theme-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.fb-box {
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1.5px dashed var(--blue-500);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.fb-box h3 {
+  font-size: 15.5px;
+  margin-bottom: 2px;
+}
+
+.fb-sub {
+  font-size: 13px;
+  color: var(--ink-600);
+  margin-bottom: 10px;
+}
+
+.fb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.fb-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.fb-input-row input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.fb-input-row .btn-primary {
+  white-space: nowrap;
+}
+
+.fb-status {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--blue-600);
+  font-weight: 600;
 }
 
 .dp-section p {

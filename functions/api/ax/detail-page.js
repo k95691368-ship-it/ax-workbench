@@ -120,6 +120,38 @@ export async function onRequestPost(context) {
     tone: String(body.tone || '').slice(0, 100),
   }
 
+  // 피드백 반영 모드: 이전 결과와 사용자 피드백을 함께 받아 개선판을 만든다
+  let feedback = ''
+  let previous = null
+  if (body.revision && typeof body.revision === 'object') {
+    if (typeof body.revision.feedback !== 'string' || !body.revision.feedback.trim())
+      return errorJson('피드백 내용을 입력해주세요.')
+    feedback = body.revision.feedback.trim().slice(0, 300)
+    const p = body.revision.previous
+    if (p && typeof p === 'object' && Array.isArray(p.sections) && p.sections.length > 0) {
+      previous = {
+        headline: String(p.headline || '').slice(0, 200),
+        subheadline: String(p.subheadline || '').slice(0, 300),
+        sections: p.sections.slice(0, 8).map((s) => ({
+          title: String(s?.title || '').slice(0, 100),
+          body: String(s?.body || '').slice(0, 600),
+          bullets: Array.isArray(s?.bullets) ? s.bullets.slice(0, 6).map((b) => String(b).slice(0, 120)) : [],
+          image_brief: String(s?.image_brief || '').slice(0, 200),
+        })),
+        faq: Array.isArray(p.faq)
+          ? p.faq.slice(0, 5).map((f) => ({ q: String(f?.q || '').slice(0, 150), a: String(f?.a || '').slice(0, 300) }))
+          : [],
+        designer_notes: String(p.designer_notes || '').slice(0, 500),
+      }
+    }
+    if (!previous) return errorJson('이전 결과가 없어 피드백을 반영할 수 없습니다. 먼저 생성해주세요.')
+  }
+
+  let userContent = `[제품 정보]\n${JSON.stringify(input, null, 2)}`
+  if (previous) {
+    userContent += `\n\n[이전 생성 결과]\n${JSON.stringify(previous)}\n\n[사용자 피드백]\n${feedback}\n\n위 피드백을 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분(사실 정보·구조)은 유지하고, 피드백이 요구한 방향은 확실하게 반영하세요. 디자인 방향 피드백이면 designer_notes와 image_brief에도 반영하세요.`
+  }
+
   if (!(await verifyTurnstile(env, request)))
     return errorJson('보안 검증에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.', 403)
 
@@ -146,7 +178,7 @@ export async function onRequestPost(context) {
   try {
     const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM,
-      user: `[제품 정보]\n${JSON.stringify(input, null, 2)}`,
+      user: userContent,
       tool: TOOL,
       maxTokens: 4096,
     })

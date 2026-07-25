@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
+import { DP_THEMES, getTheme } from '../lib/themes.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
+
+const QUICK_FEEDBACK = [
+  '톤을 더 고급스럽게 바꿔줘',
+  '더 캐주얼하고 친근하게',
+  '문장을 절반 길이로 짧게',
+  '인증·보장균수 같은 신뢰 요소를 더 강조해줘',
+]
 
 const LOADING_STEPS = [
   '제품 정보를 분석하고 있어요',
@@ -13,13 +21,14 @@ const LOADING_STEPS = [
   '표시광고 기준으로 검수하고 있어요',
 ]
 
-function buildHtml(result, product) {
+function buildHtml(result, product, theme) {
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const t = theme || getTheme('green')
   const sections = (result.sections || [])
     .map(
       (s) => `
   <section style="padding:48px 24px;max-width:720px;margin:0 auto;border-bottom:1px solid #eee;">
-    <h2 style="font-size:24px;color:#14532d;">${esc(s.title)}</h2>
+    <h2 style="font-size:24px;color:${t.heading};">${esc(s.title)}</h2>
     <p style="font-size:16px;line-height:1.8;color:#333;">${esc(s.body)}</p>
     ${(s.bullets || []).length ? `<ul>${s.bullets.map((b) => `<li style="line-height:1.9;">${esc(b)}</li>`).join('')}</ul>` : ''}
     <p style="font-size:12px;color:#999;background:#f6f6f6;padding:8px 12px;border-radius:6px;">[이미지 지시] ${esc(s.image_brief)}</p>
@@ -32,28 +41,29 @@ function buildHtml(result, product) {
   return `<!doctype html>
 <html lang="ko">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(product.name)} 상세페이지 초안</title></head>
-<body style="margin:0;font-family:Pretendard,'Malgun Gothic',sans-serif;">
-  <header style="background:#14532d;color:#fff;text-align:center;padding:72px 24px;">
+<body style="margin:0;font-family:Pretendard,'Malgun Gothic',sans-serif;background:${t.surface};">
+  <header style="background:${t.accent};color:#fff;text-align:center;padding:72px 24px;">
     <h1 style="font-size:30px;margin:0 0 12px;">${esc(result.headline)}</h1>
     <p style="font-size:17px;opacity:.85;margin:0;">${esc(result.subheadline)}</p>
   </header>
   ${sections}
   <section style="padding:48px 24px;max-width:720px;margin:0 auto;">
-    <h2 style="font-size:22px;">자주 묻는 질문</h2>
+    <h2 style="font-size:22px;color:${t.heading};">자주 묻는 질문</h2>
     <dl>${faq}</dl>
   </section>
-  <footer style="background:#f6f6f6;padding:24px;text-align:center;font-size:12px;color:#888;">
-    본 문서는 AI가 생성한 초안입니다 · 디자이너 메모: ${esc(result.designer_notes)}
+  <footer style="background:${t.footer};padding:24px;text-align:center;font-size:12px;color:#888;">
+    본 문서는 AI가 생성한 초안입니다 · 디자인 테마: ${esc(t.label)} · 디자이너 메모: ${esc(result.designer_notes)}
   </footer>
 </body></html>`
 }
 
-function buildBrief(result, product) {
+function buildBrief(result, product, theme) {
   const lines = [
     `[상세페이지 디자인 브리프] ${product.name}`,
     '',
     `헤드라인: ${result.headline}`,
     `서브: ${result.subheadline}`,
+    `디자인 테마: ${theme.label} (포인트 ${theme.accent} / 배경 ${theme.surface})`,
     `톤앤매너: ${result.designer_notes}`,
     '',
     '섹션 구성:',
@@ -67,10 +77,17 @@ export default function DetailPage() {
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState(0)
   const [error, setError] = useState('')
-  const [result, setResult] = useState(null)
+  const [versions, setVersions] = useState([])
+  const [activeVer, setActiveVer] = useState(0)
+  const [themeId, setThemeId] = useState('green')
+  const [feedback, setFeedback] = useState('')
+  const [revising, setRevising] = useState(false)
   const [viewport, setViewport] = useState('mobile')
   const [copied, setCopied] = useState('')
   const resultRef = useRef(null)
+
+  const result = versions[activeVer] || null
+  const theme = getTheme(themeId)
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -89,12 +106,47 @@ export default function DetailPage() {
     setError('')
     try {
       const data = await postJson('/api/ax/detail-page', form)
-      setResult(data)
+      setVersions([data])
+      setActiveVer(0)
+      setFeedback('')
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 현재 보고 있는 버전에 사용자 피드백을 반영한 새 버전을 만든다
+  async function revise(text) {
+    const fb = (text || '').trim()
+    if (!fb || !result || revising) return
+    setRevising(true)
+    setError('')
+    try {
+      const data = await postJson('/api/ax/detail-page', {
+        ...form,
+        revision: {
+          feedback: fb,
+          previous: {
+            headline: result.headline,
+            subheadline: result.subheadline,
+            sections: result.sections,
+            faq: result.faq,
+            designer_notes: result.designer_notes,
+          },
+        },
+      })
+      setVersions((prev) => {
+        const next = [...prev, { ...data, feedbackApplied: fb }].slice(-6)
+        setActiveVer(next.length - 1)
+        return next
+      })
+      setFeedback('')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setRevising(false)
     }
   }
 
@@ -110,7 +162,7 @@ export default function DetailPage() {
 
   function download() {
     const safeName = (form.name || '제품').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
-    const blob = new Blob([buildHtml(result, form)], { type: 'text/html;charset=utf-8' })
+    const blob = new Blob([buildHtml(result, form, theme)], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -219,7 +271,7 @@ export default function DetailPage() {
                 <button type="button" className="btn-ghost" onClick={generate}>
                   다시 생성
                 </button>
-                <button type="button" className="btn-ghost" onClick={() => copyText('brief', buildBrief(result, form))}>
+                <button type="button" className="btn-ghost" onClick={() => copyText('brief', buildBrief(result, form, theme))}>
                   {copied === 'brief' ? '복사됨 ✓' : '디자인 브리프 복사'}
                 </button>
                 <button type="button" className="btn-ghost" onClick={download}>
@@ -227,9 +279,46 @@ export default function DetailPage() {
                 </button>
               </div>
 
+              <div className="dp-controls">
+                {versions.length > 1 && (
+                  <div className="ver-row" role="group" aria-label="생성 버전 선택">
+                    {versions.map((v, i) => (
+                      <button
+                        type="button"
+                        key={i}
+                        className={i === activeVer ? 'ver-chip active' : 'ver-chip'}
+                        title={v.feedbackApplied ? `피드백: ${v.feedbackApplied}` : '최초 생성'}
+                        onClick={() => setActiveVer(i)}
+                      >
+                        버전 {i + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="theme-row" role="group" aria-label="디자인 테마 선택">
+                  <span className="theme-row-label">디자인 테마</span>
+                  {DP_THEMES.map((t) => (
+                    <button
+                      type="button"
+                      key={t.id}
+                      className={t.id === themeId ? 'theme-chip active' : 'theme-chip'}
+                      title={t.desc}
+                      onClick={() => setThemeId(t.id)}
+                    >
+                      <span className="theme-dot" style={{ background: t.accent }} aria-hidden="true" />
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className={viewport === 'mobile' ? 'dp-frame mobile' : 'dp-frame'}>
                 {viewport === 'mobile' && <div className="dp-frame-notch" aria-hidden="true" />}
-                <article className="dp-preview" aria-label="상세페이지 미리보기">
+                <article
+                  className="dp-preview"
+                  style={{ '--dp-accent': theme.accent, '--dp-heading': theme.heading, '--dp-surface': theme.surface }}
+                  aria-label="상세페이지 미리보기"
+                >
                   <header className="dp-hero">
                     <h2>{result.headline}</h2>
                     <p>{result.subheadline}</p>
@@ -269,6 +358,39 @@ export default function DetailPage() {
                     </section>
                   )}
                 </article>
+              </div>
+
+              <div className="fb-box">
+                <h3>AI 피드백으로 다듬기</h3>
+                <p className="fb-sub">
+                  바꾸고 싶은 점을 말하면 이 결과를 기억한 채로 개선판(새 버전)을 만듭니다.
+                </p>
+                <div className="fb-chips">
+                  {QUICK_FEEDBACK.map((q) => (
+                    <button type="button" key={q} className="preset-chip" disabled={revising} onClick={() => revise(q)}>
+                      {q}
+                    </button>
+                  ))}
+                </div>
+                <div className="fb-input-row">
+                  <input
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                    maxLength={300}
+                    placeholder="예: 헤드라인을 더 짧게, 선물용 느낌으로 바꿔줘"
+                    aria-label="피드백 입력"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        revise(feedback)
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn-primary" disabled={revising || !feedback.trim()} onClick={() => revise(feedback)}>
+                    {revising ? '반영 중... (10~20초)' : '피드백 반영'}
+                  </button>
+                </div>
+                {revising && <p className="fb-status" aria-live="polite">이전 결과를 기억한 채로 피드백을 반영하고 있어요...</p>}
               </div>
 
               <aside className="dp-meta">
