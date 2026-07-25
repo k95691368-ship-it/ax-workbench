@@ -1,4 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+
+// claude-opus-4-8 단가 (USD / 토큰)
+const INPUT_PRICE = 5 / 1_000_000
+const OUTPUT_PRICE = 25 / 1_000_000
 
 const MAPPING = [
   {
@@ -81,6 +86,17 @@ const REQUIREMENTS = [
 ]
 
 export default function AboutPage() {
+  const [stats, setStats] = useState(null)
+
+  useEffect(() => {
+    fetch('/api/ax/stats')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.available && d.total > 0) setStats(d)
+      })
+      .catch(() => {})
+  }, [])
+
   return (
     <div className="tool-page about-page">
       <header className="tool-header">
@@ -119,6 +135,38 @@ export default function AboutPage() {
           </table>
         </div>
       </section>
+
+      {stats && (
+        <section className="about-section">
+          <h2>실측 운영 지표 — 최근 7일</h2>
+          <div className="stat-row">
+            <div className="stat-tile">
+              <span className="stat-label">AI 생성 요청</span>
+              <span className="stat-value">{stats.total.toLocaleString('ko-KR')}회</span>
+            </div>
+            <div className="stat-tile">
+              <span className="stat-label">라이브 생성</span>
+              <span className="stat-value">{stats.live_calls.toLocaleString('ko-KR')}회</span>
+            </div>
+            {stats.live_avg_ms != null && (
+              <div className="stat-tile">
+                <span className="stat-label">평균 생성 시간</span>
+                <span className="stat-value">{(stats.live_avg_ms / 1000).toFixed(1)}초</span>
+              </div>
+            )}
+            <div className="stat-tile">
+              <span className="stat-label">누적 추정 비용</span>
+              <span className="stat-value">
+                ${(stats.input_tokens * INPUT_PRICE + stats.output_tokens * OUTPUT_PRICE).toFixed(2)}
+              </span>
+            </div>
+          </div>
+          <p className="about-point">
+            호출마다 모드(라이브/데모/폴백)·소요시간·토큰을 D1에 기록하고 집계합니다. 개인정보는
+            저장하지 않습니다.
+          </p>
+        </section>
+      )}
 
       <section className="about-section">
         <h2>시스템 구조</h2>

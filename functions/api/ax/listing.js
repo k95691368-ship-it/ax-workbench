@@ -2,6 +2,7 @@ import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
+import { logCall } from '../../_lib/telemetry.js'
 
 function adCheckListing(result) {
   return checkTexts([...(result.titles || []), ...(result.search_keywords || []), ...(result.tags || [])])
@@ -87,8 +88,11 @@ export async function onRequestPost(context) {
     features: String(body.features || '').slice(0, 500),
   }
 
+  const startedAt = Date.now()
+
   if (!hasApiKey(env)) {
     const demo = demoResult(input)
+    logCall(context, { endpoint: 'listing', mode: 'demo', startedAt })
     return json({ ...demo, ad_check: adCheckListing(demo) })
   }
 
@@ -113,9 +117,12 @@ export async function onRequestPost(context) {
     ensureContract(result, {
       arrays: ['titles', 'search_keywords', 'tags', 'category_paths', 'compliance_notes'],
     })
-    return json({ demo: false, usage, ad_check: adCheckListing(result), ...result })
+    const adCheck = adCheckListing(result)
+    logCall(context, { endpoint: 'listing', mode: 'live', startedAt, usage, findingsCount: adCheck.length })
+    return json({ demo: false, usage, ad_check: adCheck, ...result })
   } catch (err) {
     const demo = demoResult(input)
+    logCall(context, { endpoint: 'listing', mode: 'fallback', startedAt })
     return json({ ...demo, ad_check: adCheckListing(demo), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

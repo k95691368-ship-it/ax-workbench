@@ -2,6 +2,7 @@ import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
+import { logCall } from '../../_lib/telemetry.js'
 
 function adCheckDetail(result) {
   return checkTexts([
@@ -118,8 +119,11 @@ export async function onRequestPost(context) {
     tone: String(body.tone || '').slice(0, 100),
   }
 
+  const startedAt = Date.now()
+
   if (!hasApiKey(env)) {
     const demo = demoResult(input)
+    logCall(context, { endpoint: 'detail-page', mode: 'demo', startedAt })
     return json({ ...demo, ad_check: adCheckDetail(demo) })
   }
 
@@ -146,10 +150,13 @@ export async function onRequestPost(context) {
       arrays: ['sections', 'faq', 'keywords'],
       strings: ['headline', 'subheadline', 'designer_notes'],
     })
-    return json({ demo: false, usage, ad_check: adCheckDetail(result), ...result })
+    const adCheck = adCheckDetail(result)
+    logCall(context, { endpoint: 'detail-page', mode: 'live', startedAt, usage, findingsCount: adCheck.length })
+    return json({ demo: false, usage, ad_check: adCheck, ...result })
   } catch (err) {
     // 외부 AI 장애/지연 시에도 빈 에러 화면 대신 예시 결과로 응답한다
     const demo = demoResult(input)
+    logCall(context, { endpoint: 'detail-page', mode: 'fallback', startedAt })
     return json({ ...demo, ad_check: adCheckDetail(demo), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

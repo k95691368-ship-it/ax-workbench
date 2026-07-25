@@ -2,6 +2,7 @@ import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
+import { logCall } from '../../_lib/telemetry.js'
 
 function withAdCheck(results) {
   for (const r of results) {
@@ -110,8 +111,11 @@ export async function onRequestPost(context) {
     tone: String(body.product.tone || '').slice(0, 100),
   }
 
+  const startedAt = Date.now()
+
   if (!hasApiKey(env)) {
     const demo = demoResult(channels)
+    logCall(context, { endpoint: 'content', mode: 'demo', startedAt })
     return json({ ...demo, results: withAdCheck(demo.results) })
   }
 
@@ -139,9 +143,18 @@ export async function onRequestPost(context) {
       (r) => r && typeof r.channel === 'string' && typeof r.title === 'string' && typeof r.body === 'string'
     )
     if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
-    return json({ demo: false, usage, ...result, results: withAdCheck(result.results) })
+    const checked = withAdCheck(result.results)
+    logCall(context, {
+      endpoint: 'content',
+      mode: 'live',
+      startedAt,
+      usage,
+      findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
+    })
+    return json({ demo: false, usage, ...result, results: checked })
   } catch (err) {
     const demo = demoResult(channels)
+    logCall(context, { endpoint: 'content', mode: 'fallback', startedAt })
     return json({ ...demo, results: withAdCheck(demo.results), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

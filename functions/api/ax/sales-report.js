@@ -1,6 +1,7 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey } from '../../_lib/claude.js'
+import { logCall } from '../../_lib/telemetry.js'
 
 const TOOL = {
   name: 'record_sales_report',
@@ -78,7 +79,12 @@ export async function onRequestPost(context) {
     anomalies: (summary.anomalies || []).slice(0, 10),
   }
 
-  if (!hasApiKey(env)) return json(demoResult(compact))
+  const startedAt = Date.now()
+
+  if (!hasApiKey(env)) {
+    logCall(context, { endpoint: 'sales-report', mode: 'demo', startedAt })
+    return json(demoResult(compact))
+  }
 
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400)))
     return json({ ...demoResult(compact), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
@@ -100,8 +106,10 @@ export async function onRequestPost(context) {
       arrays: ['insights', 'actions', 'risks'],
       strings: ['headline', 'summary'],
     })
+    logCall(context, { endpoint: 'sales-report', mode: 'live', startedAt, usage })
     return json({ demo: false, usage, ...result })
   } catch (err) {
+    logCall(context, { endpoint: 'sales-report', mode: 'fallback', startedAt })
     return json({ ...demoResult(compact), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }
