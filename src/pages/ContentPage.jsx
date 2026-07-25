@@ -1,18 +1,32 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import ChannelPreview from '../components/ChannelPreview.jsx'
 import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
+const QUICK_FEEDBACK = [
+  '첫 줄 후킹을 더 강하게',
+  '이모지를 줄여줘',
+  '더 짧고 임팩트 있게',
+  '신뢰감 있는 존댓말 톤으로 통일',
+]
+
 export default function ContentPage() {
-  const [product, setProduct] = useState(PRODUCT_PRESETS[0])
+  const location = useLocation()
+  const [product, setProduct] = useState(() => location.state?.product || PRODUCT_PRESETS[0])
   const [selected, setSelected] = useState(['instagram', 'cardnews', 'youtube'])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [result, setResult] = useState(null)
+  const [versions, setVersions] = useState([])
+  const [activeVer, setActiveVer] = useState(0)
+  const [feedback, setFeedback] = useState('')
+  const [revising, setRevising] = useState(false)
   const [activeTab, setActiveTab] = useState('')
   const [copied, setCopied] = useState('')
+
+  const result = versions[activeVer] || null
 
   const set = (key) => (e) => setProduct((p) => ({ ...p, [key]: e.target.value }))
 
@@ -31,12 +45,49 @@ export default function ContentPage() {
     try {
       const data = await postJson('/api/ax/content', { product, channels: selected })
       data.results = Array.isArray(data.results) ? data.results : []
-      setResult(data)
+      setVersions([data])
+      setActiveVer(0)
+      setFeedback('')
       setActiveTab(data.results[0]?.channel || '')
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 현재 버전의 모든 채널 콘텐츠에 피드백을 일관 반영한 새 버전을 만든다
+  async function revise(text) {
+    const fb = (text || '').trim()
+    if (!fb || !result || revising) return
+    setRevising(true)
+    setError('')
+    try {
+      const channels = result.results.map((r) => r.channel)
+      const data = await postJson('/api/ax/content', {
+        product,
+        channels,
+        revision: {
+          feedback: fb,
+          previous: result.results.map((r) => ({
+            channel: r.channel,
+            title: r.title,
+            body: r.body,
+            hashtags: r.hashtags,
+          })),
+        },
+      })
+      data.results = Array.isArray(data.results) ? data.results : []
+      setVersions((prev) => {
+        const next = [...prev, { ...data, feedbackApplied: fb }].slice(-6)
+        setActiveVer(next.length - 1)
+        return next
+      })
+      setFeedback('')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setRevising(false)
     }
   }
 
@@ -52,7 +103,7 @@ export default function ContentPage() {
   }
 
   const channelLabel = (id) => CHANNELS.find((c) => c.id === id)?.label || id
-  const active = result?.results?.find((r) => r.channel === activeTab)
+  const active = result?.results?.find((r) => r.channel === activeTab) || result?.results?.[0]
 
   return (
     <div className="tool-page">
@@ -129,6 +180,21 @@ export default function ContentPage() {
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <UsageNote usage={result.usage} />
+                {versions.length > 1 && (
+                  <div className="ver-row" role="group" aria-label="생성 버전 선택">
+                    {versions.map((v, i) => (
+                      <button
+                        type="button"
+                        key={i}
+                        className={i === activeVer ? 'ver-chip active' : 'ver-chip'}
+                        title={v.feedbackApplied ? `피드백: ${v.feedbackApplied}` : '최초 생성'}
+                        onClick={() => setActiveVer(i)}
+                      >
+                        버전 {i + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="tab-row" role="tablist">
                 {result.results.map((r) => (
@@ -165,6 +231,37 @@ export default function ContentPage() {
                   )}
                 </article>
               )}
+
+              <div className="fb-box">
+                <h3>AI 피드백으로 다듬기</h3>
+                <p className="fb-sub">피드백 하나가 생성된 모든 채널 콘텐츠에 일관되게 반영됩니다.</p>
+                <div className="fb-chips">
+                  {QUICK_FEEDBACK.map((q) => (
+                    <button type="button" key={q} className="preset-chip" disabled={revising} onClick={() => revise(q)}>
+                      {q}
+                    </button>
+                  ))}
+                </div>
+                <div className="fb-input-row">
+                  <input
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                    maxLength={300}
+                    placeholder="예: 유튜브는 더 길게, 나머지는 그대로"
+                    aria-label="피드백 입력"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        revise(feedback)
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn-primary" disabled={revising || !feedback.trim()} onClick={() => revise(feedback)}>
+                    {revising ? '반영 중... (10~30초)' : '피드백 반영'}
+                  </button>
+                </div>
+                {revising && <p className="fb-status" aria-live="polite">모든 채널에 피드백을 일관 반영하고 있어요...</p>}
+              </div>
             </>
           )}
         </div>

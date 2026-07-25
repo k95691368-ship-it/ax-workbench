@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { scanText, BANNED_RULES } from '../lib/compliance.js'
@@ -35,10 +36,12 @@ function HighlightedText({ text, findings }) {
 }
 
 export default function ListingPage() {
-  const [form, setForm] = useState({
-    name: PRODUCT_PRESETS[0].name,
-    category: PRODUCT_PRESETS[0].category,
-    features: PRODUCT_PRESETS[0].features,
+  const location = useLocation()
+  const [form, setForm] = useState(() => {
+    const p = location.state?.product
+    return p
+      ? { name: p.name || '', category: p.category || '', features: p.features || '' }
+      : { name: PRODUCT_PRESETS[0].name, category: PRODUCT_PRESETS[0].category, features: PRODUCT_PRESETS[0].features }
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')

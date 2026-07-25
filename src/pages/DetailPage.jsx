@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { DP_THEMES, getTheme, orbStyle, makeCustomTheme, fileToResizedDataUrl } from '../lib/themes.js'
@@ -110,6 +111,7 @@ export default function DetailPage() {
   const [customImage, setCustomImage] = useState(null)
   const resultRef = useRef(null)
   const imgInputRef = useRef(null)
+  const navigate = useNavigate()
 
   const result = versions[activeVer] || null
   const theme = themeId === 'custom' && customImage ? makeCustomTheme(customImage) : getTheme(themeId)
@@ -496,6 +498,16 @@ export default function DetailPage() {
                   ))}
                 </div>
               </aside>
+
+              <div className="next-steps">
+                <span className="next-steps-label">이 제품 정보 그대로 이어서:</span>
+                <button type="button" className="btn-ghost" onClick={() => navigate('/content', { state: { product: form } })}>
+                  채널 콘텐츠 만들기 →
+                </button>
+                <button type="button" className="btn-ghost" onClick={() => navigate('/listing', { state: { product: form } })}>
+                  상품등록 최적화 →
+                </button>
+              </div>
             </>
           )}
         </div>

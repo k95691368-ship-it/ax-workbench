@@ -112,6 +112,25 @@ export async function onRequestPost(context) {
     tone: String(body.product.tone || '').slice(0, 100),
   }
 
+  // 피드백 반영 모드: 이전 채널 콘텐츠와 피드백을 함께 받아 개선판을 만든다
+  let feedback = ''
+  let previous = null
+  if (body.revision && typeof body.revision === 'object') {
+    if (typeof body.revision.feedback !== 'string' || !body.revision.feedback.trim())
+      return errorJson('피드백 내용을 입력해주세요.')
+    feedback = body.revision.feedback.trim().slice(0, 300)
+    const p = body.revision.previous
+    if (Array.isArray(p) && p.length > 0) {
+      previous = p.slice(0, 6).map((r) => ({
+        channel: String(r?.channel || '').slice(0, 20),
+        title: String(r?.title || '').slice(0, 200),
+        body: String(r?.body || '').slice(0, 2000),
+        hashtags: Array.isArray(r?.hashtags) ? r.hashtags.slice(0, 15).map((h) => String(h).slice(0, 40)) : [],
+      }))
+    }
+    if (!previous) return errorJson('이전 결과가 없어 피드백을 반영할 수 없습니다. 먼저 생성해주세요.')
+  }
+
   if (!(await verifyTurnstile(env, request)))
     return errorJson('보안 검증에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.', 403)
 
@@ -135,10 +154,14 @@ export async function onRequestPost(context) {
     return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   const specs = channels.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
+  let userContent = `[제품 정보]\n${JSON.stringify(product, null, 2)}\n\n[요청 채널과 스펙]\n${specs}\n\n요청된 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`
+  if (previous) {
+    userContent += `\n\n[이전 생성 결과]\n${JSON.stringify(previous)}\n\n[사용자 피드백]\n${feedback}\n\n위 피드백을 모든 요청 채널에 일관되게 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분은 유지하세요.`
+  }
   try {
     const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM,
-      user: `[제품 정보]\n${JSON.stringify(product, null, 2)}\n\n[요청 채널과 스펙]\n${specs}\n\n요청된 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`,
+      user: userContent,
       tool: TOOL,
       maxTokens: 16000,
     })
