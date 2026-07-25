@@ -1,9 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
+
+const LOADING_STEPS = [
+  '제품 정보를 분석하고 있어요',
+  '섹션 구조를 설계하고 있어요',
+  '섹션별 카피를 쓰고 있어요',
+  '표시광고 기준으로 검수하고 있어요',
+]
 
 function buildHtml(result, product) {
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -40,26 +47,60 @@ function buildHtml(result, product) {
 </body></html>`
 }
 
+function buildBrief(result, product) {
+  const lines = [
+    `[상세페이지 디자인 브리프] ${product.name}`,
+    '',
+    `헤드라인: ${result.headline}`,
+    `서브: ${result.subheadline}`,
+    `톤앤매너: ${result.designer_notes}`,
+    '',
+    '섹션 구성:',
+    ...(result.sections || []).map((s, i) => `${i + 1}. ${s.title}\n   - 이미지: ${s.image_brief}`),
+  ]
+  return lines.join('\n')
+}
+
 export default function DetailPage() {
   const [form, setForm] = useState(PRODUCT_PRESETS[0])
   const [loading, setLoading] = useState(false)
+  const [step, setStep] = useState(0)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  const [viewport, setViewport] = useState('mobile')
+  const [copied, setCopied] = useState('')
+  const resultRef = useRef(null)
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
+  useEffect(() => {
+    if (!loading) return undefined
+    setStep(0)
+    const timer = setInterval(() => {
+      setStep((s) => Math.min(s + 1, LOADING_STEPS.length - 1))
+    }, 3500)
+    return () => clearInterval(timer)
+  }, [loading])
+
   async function generate(e) {
-    e.preventDefault()
+    e?.preventDefault()
     setLoading(true)
     setError('')
     try {
       const data = await postJson('/api/ax/detail-page', form)
       setResult(data)
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  async function copyText(key, text) {
+    await navigator.clipboard.writeText(text)
+    setCopied(key)
+    setTimeout(() => setCopied(''), 1500)
   }
 
   function download() {
@@ -79,7 +120,7 @@ export default function DetailPage() {
         <h1>AI 상품 상세페이지 생성기</h1>
         <p>
           제품 정보를 입력하면 상세페이지의 섹션 구조·카피·이미지 지시서를 생성합니다. 결과물은
-          HTML로 내려받아 디자이너에게 그대로 인계할 수 있습니다.
+          HTML과 디자인 브리프로 내려받아 디자이너에게 그대로 인계할 수 있습니다.
         </p>
       </header>
 
@@ -123,59 +164,103 @@ export default function DetailPage() {
           </label>
 
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? '생성 중... (10~20초)' : '상세페이지 생성'}
+            {loading ? '생성 중...' : '상세페이지 생성'}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
 
-        <div className="tool-result">
+        <div className="tool-result" ref={resultRef}>
           {!result && !loading && (
             <div className="result-empty">
-              <p>왼쪽에서 예시 제품을 선택하거나 직접 입력한 뒤 생성 버튼을 누르세요.</p>
-              <p className="result-empty-sub">생성 → 미리보기 → HTML 다운로드 → 디자이너 인계 흐름을 시연합니다.</p>
+              <p>왼쪽 예시 제품이 이미 채워져 있어요. 생성 버튼만 누르면 됩니다.</p>
+              <p className="result-empty-sub">생성 → 모바일 미리보기 → HTML·브리프 다운로드 → 디자이너 인계 흐름을 시연합니다.</p>
             </div>
           )}
-          {loading && <div className="result-empty"><p>AI가 상세페이지 구조를 설계하고 있습니다...</p></div>}
+          {loading && (
+            <div className="result-empty gen-progress" aria-live="polite">
+              <ol className="gen-steps">
+                {LOADING_STEPS.map((s, i) => (
+                  <li key={s} className={i < step ? 'done' : i === step ? 'now' : ''}>
+                    {i < step ? '✓' : i === step ? '●' : '○'} {s}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
           {result && !loading && (
             <>
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
+                <div className="viewport-toggle" role="group" aria-label="미리보기 크기">
+                  <button
+                    type="button"
+                    className={viewport === 'mobile' ? 'toggle-btn active' : 'toggle-btn'}
+                    onClick={() => setViewport('mobile')}
+                  >
+                    모바일
+                  </button>
+                  <button
+                    type="button"
+                    className={viewport === 'pc' ? 'toggle-btn active' : 'toggle-btn'}
+                    onClick={() => setViewport('pc')}
+                  >
+                    PC
+                  </button>
+                </div>
+                <button type="button" className="btn-ghost" onClick={generate}>
+                  다시 생성
+                </button>
+                <button type="button" className="btn-ghost" onClick={() => copyText('brief', buildBrief(result, form))}>
+                  {copied === 'brief' ? '복사됨 ✓' : '디자인 브리프 복사'}
+                </button>
                 <button type="button" className="btn-ghost" onClick={download}>
-                  HTML 다운로드 (디자이너 인계용)
+                  HTML 다운로드
                 </button>
               </div>
 
-              <article className="dp-preview" aria-label="상세페이지 미리보기">
-                <header className="dp-hero">
-                  <h2>{result.headline}</h2>
-                  <p>{result.subheadline}</p>
-                </header>
-                {(result.sections || []).map((s, i) => (
-                  <section className="dp-section" key={i}>
-                    <h3>{s.title}</h3>
-                    <p>{s.body}</p>
-                    {(s.bullets || []).length > 0 && (
-                      <ul>
-                        {s.bullets.map((b, j) => (
-                          <li key={j}>{b}</li>
-                        ))}
-                      </ul>
-                    )}
-                    <p className="dp-image-brief">🎨 이미지 지시: {s.image_brief}</p>
-                  </section>
-                ))}
-                {(result.faq || []).length > 0 && (
-                  <section className="dp-section">
-                    <h3>자주 묻는 질문</h3>
-                    {result.faq.map((f, i) => (
-                      <div className="dp-faq" key={i}>
-                        <p className="dp-faq-q">Q. {f.q}</p>
-                        <p className="dp-faq-a">A. {f.a}</p>
+              <div className={viewport === 'mobile' ? 'dp-frame mobile' : 'dp-frame'}>
+                {viewport === 'mobile' && <div className="dp-frame-notch" aria-hidden="true" />}
+                <article className="dp-preview" aria-label="상세페이지 미리보기">
+                  <header className="dp-hero">
+                    <h2>{result.headline}</h2>
+                    <p>{result.subheadline}</p>
+                  </header>
+                  {(result.sections || []).map((s, i) => (
+                    <section className="dp-section" key={i}>
+                      <div className="dp-section-head">
+                        <h3>{s.title}</h3>
+                        <button
+                          type="button"
+                          className="copy-mini"
+                          onClick={() => copyText(`sec${i}`, `${s.title}\n${s.body}${(s.bullets || []).length ? '\n- ' + s.bullets.join('\n- ') : ''}`)}
+                        >
+                          {copied === `sec${i}` ? '✓' : '복사'}
+                        </button>
                       </div>
-                    ))}
-                  </section>
-                )}
-              </article>
+                      <p>{s.body}</p>
+                      {(s.bullets || []).length > 0 && (
+                        <ul>
+                          {s.bullets.map((b, j) => (
+                            <li key={j}>{b}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="dp-image-brief">🎨 이미지 지시: {s.image_brief}</p>
+                    </section>
+                  ))}
+                  {(result.faq || []).length > 0 && (
+                    <section className="dp-section">
+                      <h3>자주 묻는 질문</h3>
+                      {result.faq.map((f, i) => (
+                        <div className="dp-faq" key={i}>
+                          <p className="dp-faq-q">Q. {f.q}</p>
+                          <p className="dp-faq-a">A. {f.a}</p>
+                        </div>
+                      ))}
+                    </section>
+                  )}
+                </article>
+              </div>
 
               <aside className="dp-meta">
                 <h3>디자이너 인계 메모</h3>
