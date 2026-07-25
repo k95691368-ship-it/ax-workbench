@@ -1,0 +1,103 @@
+import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { callClaudeTool, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+
+const TOOL = {
+  name: 'record_listing_optimization',
+  description: '오픈마켓 상품등록에 쓸 검색최적화 상품명·태그·카테고리 추천을 기록한다.',
+  input_schema: {
+    type: 'object',
+    required: ['titles', 'search_keywords', 'tags', 'category_paths', 'compliance_notes'],
+    properties: {
+      titles: {
+        type: 'array',
+        description: '검색최적화 상품명 후보 4~5개. [브랜드/수식어] + 핵심키워드 + 규격 구조, 50자 이내',
+        items: { type: 'string' },
+      },
+      search_keywords: {
+        type: 'array',
+        description: '구매 의도가 있는 검색 키워드 8~12개 (대표키워드+세부키워드 혼합)',
+        items: { type: 'string' },
+      },
+      tags: { type: 'array', description: '오픈마켓 등록용 태그 10개 내외', items: { type: 'string' } },
+      category_paths: {
+        type: 'array',
+        description: '추천 카테고리 경로 2~3개 (예: 식품 > 건강식품 > 유산균)',
+        items: { type: 'string' },
+      },
+      compliance_notes: {
+        type: 'array',
+        description: '이 상품을 등록·광고할 때 주의할 표시광고 유의사항 2~4개',
+        items: { type: 'string' },
+      },
+    },
+  },
+}
+
+const SYSTEM = `당신은 오픈마켓(네이버 스마트스토어, 쿠팡 등) 상품등록 최적화 전문가입니다. 제품 정보를 받아 검색 노출과 클릭에 유리한 상품명·키워드·태그·카테고리를 제안합니다.
+
+규칙:
+1. 상품명은 [브랜드/수식어] + 핵심키워드 + 속성/규격 구조로, 특수문자 남용 없이 50자 이내로 작성하세요.
+2. 키워드는 검색량이 있을 법한 실제 구매 검색어 위주로, 대표키워드와 세부(롱테일)키워드를 섞으세요.
+3. 제품 정보에 없는 속성을 지어내지 마세요.
+${COMPLIANCE_RULES}`
+
+function demoResult() {
+  return {
+    demo: true,
+    titles: [
+      '데일리 장편한 유산균 19종 프로바이오틱스 스틱 100억 CFU 30포',
+      '장편한 데일리 유산균 스틱 30포 물없이 먹는 프로바이오틱스',
+      '직장인 휴대용 유산균 19종 혼합 프로바이오틱스 아연 30포 1개월분',
+      '데일리 유산균 100억 보장균수 스틱분말 30포 프로바이오틱스',
+    ],
+    search_keywords: [
+      '유산균', '프로바이오틱스', '유산균 스틱', '물없이 먹는 유산균', '직장인 유산균',
+      '휴대용 유산균', '유산균 30포', '아연 유산균', '보장균수 100억', '스틱 유산균 추천',
+    ],
+    tags: ['유산균', '프로바이오틱스', '스틱형', '휴대용', '분말유산균', '19종유산균', '아연', '1개월분', '직장인건강', '간편섭취'],
+    category_paths: [
+      '식품 > 건강식품 > 유산균/프로바이오틱스',
+      '출산/육아 > 건강식품 > 유산균 (타깃 확장 시)',
+      '식품 > 건강식품 > 영양제 > 아연',
+    ],
+    compliance_notes: [
+      '"장 트러블 치료", "변비 예방" 등 질병 예방·치료 표현은 상품명·상세·리뷰 이벤트 문구 모두에서 금지됩니다.',
+      '기능성 문구는 고시된 범위("유산균 증식 및 유해균 억제에 도움을 줄 수 있음") 그대로만 사용하세요.',
+      '"최고", "1위" 등 최상급 표현은 객관적 근거 자료 없이는 사용할 수 없습니다.',
+      '건강기능식품은 상품페이지에 표시광고 사전심의 결과(심의필)를 함께 게시해야 합니다.',
+    ],
+  }
+}
+
+export async function onRequestPost(context) {
+  const { request, env } = context
+  const body = await readJsonBody(request)
+  if (!body || !body.name?.trim()) return errorJson('제품명을 입력해주세요.')
+
+  const input = {
+    name: String(body.name).slice(0, 100),
+    category: String(body.category || '').slice(0, 100),
+    features: String(body.features || '').slice(0, 500),
+  }
+
+  if (!hasApiKey(env)) return json(demoResult(input))
+
+  const ip = clientIp(request)
+  if (!(await checkRateLimit(env, `ax:listing:${ip}`, 10, 3600)))
+    return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'ax:listing:all', 80, 3600)))
+    return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+
+  try {
+    const result = await callClaudeTool(env, {
+      system: SYSTEM,
+      user: `[제품 정보]\n${JSON.stringify(input, null, 2)}`,
+      tool: TOOL,
+      maxTokens: 2048,
+    })
+    return json({ demo: false, ...result })
+  } catch (err) {
+    return errorJson(err.message, 502)
+  }
+}
