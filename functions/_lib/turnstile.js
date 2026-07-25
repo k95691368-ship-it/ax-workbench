@@ -8,15 +8,13 @@ export async function verifyTurnstile(env, request) {
   if (!token) return false
 
   try {
+    const params = new URLSearchParams({ secret, response: token })
+    const ip = request.headers.get('CF-Connecting-IP')
+    if (ip) params.set('remoteip', ip)
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(8000),
-      body: JSON.stringify({
-        secret,
-        response: token,
-        remoteip: request.headers.get('CF-Connecting-IP') || undefined,
-      }),
+      body: params,
     })
     const data = await res.json()
     return data.success === true
