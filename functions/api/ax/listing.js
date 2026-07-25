@@ -3,6 +3,7 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
+import { verifyTurnstile } from '../../_lib/turnstile.js'
 
 function adCheckListing(result) {
   return checkTexts([...(result.titles || []), ...(result.search_keywords || []), ...(result.tags || [])])
@@ -87,6 +88,9 @@ export async function onRequestPost(context) {
     category: String(body.category || '').slice(0, 100),
     features: String(body.features || '').slice(0, 500),
   }
+
+  if (!(await verifyTurnstile(env, request)))
+    return errorJson('보안 검증에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.', 403)
 
   const startedAt = Date.now()
 
