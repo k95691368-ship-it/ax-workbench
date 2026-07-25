@@ -1280,6 +1280,27 @@
   color: var(--ink-400);
 }
 
+.sales-filterbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sales-period {
+  font-size: 13px;
+  color: var(--ink-600);
+  font-variant-numeric: tabular-nums;
+}
+
 .stat-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

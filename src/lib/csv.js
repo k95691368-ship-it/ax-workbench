@@ -108,3 +108,23 @@ export function aggregate(records) {
 
   return { byDate, byChannel, byProduct, totalAmount, totalQty, dailyAvg, anomalies, count: records.length }
 }
+
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+
+// 요일별 "하루 평균 매출" (해당 요일이 여러 번 있으면 평균)
+export function weekdayAverages(byDate) {
+  const sums = new Map()
+  for (const [date, amount] of byDate) {
+    const day = new Date(`${date}T00:00:00`).getDay()
+    if (Number.isNaN(day)) continue
+    const cur = sums.get(day) || { total: 0, days: 0 }
+    cur.total += amount
+    cur.days += 1
+    sums.set(day, cur)
+  }
+  // 월요일 시작 순서로 반환
+  const order = [1, 2, 3, 4, 5, 6, 0]
+  return order
+    .filter((d) => sums.has(d))
+    .map((d) => [WEEKDAYS[d], Math.round(sums.get(d).total / sums.get(d).days)])
+}

@@ -1,10 +1,29 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
-import { parseCsv, normalizeSales, aggregate } from '../lib/csv.js'
+import { parseCsv, normalizeSales, aggregate, weekdayAverages } from '../lib/csv.js'
 import { SAMPLE_CSV } from '../lib/sampleSales.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 
 const fmt = (n) => Math.round(n).toLocaleString('ko-KR')
+
+function buildReportMd(report, period, channel) {
+  return [
+    `# 주간 매출 리포트 (${period})`,
+    channel !== 'all' ? `> 채널: ${channel}` : '> 채널: 전체',
+    '',
+    `## ${report.headline}`,
+    report.summary,
+    '',
+    '## 인사이트',
+    ...report.insights.map((s) => `- ${s}`),
+    '',
+    '## 이번 주 실행 제안',
+    ...report.actions.map((s) => `- ${s}`),
+    '',
+    '## 리스크',
+    ...report.risks.map((s) => `- ${s}`),
+  ].join('\n')
+}
 
 function DailyBarChart({ byDate, anomalies }) {
   const [hover, setHover] = useState(null)
@@ -86,7 +105,7 @@ function DailyBarChart({ byDate, anomalies }) {
 
 function RankBars({ title, data, total }) {
   const top = data.slice(0, 6)
-  const max = top.length ? top[0][1] : 0
+  const max = top.length ? Math.max(...top.map(([, v]) => v)) : 0
   return (
     <figure className="viz-figure">
       <figcaption>{title}</figcaption>
@@ -98,7 +117,7 @@ function RankBars({ title, data, total }) {
               <span className="rank-fill" style={{ width: `${max ? (value / max) * 100 : 0}%` }} />
             </span>
             <span className="rank-value">
-              {fmt(value)}원 <em>({total ? Math.round((value / total) * 100) : 0}%)</em>
+              {fmt(value)}원{total ? <em> ({Math.round((value / total) * 100)}%)</em> : null}
             </span>
           </div>
         ))}
@@ -109,22 +128,58 @@ function RankBars({ title, data, total }) {
 
 export default function SalesPage() {
   const [records, setRecords] = useState(null)
+  const [channel, setChannel] = useState('all')
   const [error, setError] = useState('')
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [copiedMd, setCopiedMd] = useState(false)
   const fileRef = useRef(null)
 
-  const summary = useMemo(() => (records ? aggregate(records) : null), [records])
+  const channels = useMemo(
+    () => (records ? [...new Set(records.map((r) => r.channel))].sort() : []),
+    [records]
+  )
+  const filtered = useMemo(
+    () => (records && channel !== 'all' ? records.filter((r) => r.channel === channel) : records),
+    [records, channel]
+  )
+  const summary = useMemo(() => (filtered?.length ? aggregate(filtered) : null), [filtered])
+  const weekdays = useMemo(() => (summary ? weekdayAverages(summary.byDate) : []), [summary])
+  const period = summary
+    ? `${summary.byDate[0][0]} ~ ${summary.byDate[summary.byDate.length - 1][0]}`
+    : ''
 
   function loadText(text) {
     setError('')
     setReport(null)
+    setChannel('all')
     try {
       setRecords(normalizeSales(parseCsv(text)))
     } catch (err) {
       setRecords(null)
       setError(err.message)
     }
+  }
+
+  function pickChannel(c) {
+    setChannel(c)
+    setReport(null)
+  }
+
+  async function copyReportMd() {
+    await navigator.clipboard.writeText(buildReportMd(report, period, channel))
+    setCopiedMd(true)
+    setTimeout(() => setCopiedMd(false), 1500)
+  }
+
+  function downloadReportMd() {
+    const blob = new Blob([buildReportMd(report, period, channel)], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `주간리포트_${period.replace(/\s/g, '')}.md`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   function onFile(e) {
@@ -185,6 +240,29 @@ export default function SalesPage() {
 
       {summary && (
         <>
+          <div className="sales-filterbar">
+            <div className="filter-chips" role="group" aria-label="채널 필터">
+              <button
+                type="button"
+                className={channel === 'all' ? 'preset-chip active' : 'preset-chip'}
+                onClick={() => pickChannel('all')}
+              >
+                전체 채널
+              </button>
+              {channels.map((c) => (
+                <button
+                  type="button"
+                  key={c}
+                  className={channel === c ? 'preset-chip active' : 'preset-chip'}
+                  onClick={() => pickChannel(c)}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <span className="sales-period">조회 기간: {period}</span>
+          </div>
+
           <div className="stat-row">
             <div className="stat-tile">
               <span className="stat-label">총매출</span>
@@ -212,6 +290,9 @@ export default function SalesPage() {
             <RankBars title="채널별 매출" data={summary.byChannel} total={summary.totalAmount} />
             <RankBars title="상품별 매출 TOP" data={summary.byProduct} total={summary.totalAmount} />
           </div>
+          {weekdays.length > 1 && (
+            <RankBars title="요일별 하루 평균 매출 (월~일)" data={weekdays} total={0} />
+          )}
 
           <details className="viz-table">
             <summary>집계 데이터 표로 보기</summary>
@@ -237,7 +318,15 @@ export default function SalesPage() {
 
       {report && (
         <article className="report-card">
-          <div className="result-toolbar">{report.demo && <DemoBadge />}</div>
+          <div className="result-toolbar">
+            {report.demo && <DemoBadge />}
+            <button type="button" className="btn-ghost" onClick={copyReportMd}>
+              {copiedMd ? '복사됨 ✓' : '마크다운 복사'}
+            </button>
+            <button type="button" className="btn-ghost" onClick={downloadReportMd}>
+              .md 다운로드
+            </button>
+          </div>
           <h2>{report.headline}</h2>
           <p className="report-summary">{report.summary}</p>
           <div className="report-grid">
