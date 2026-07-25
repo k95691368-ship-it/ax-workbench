@@ -7,11 +7,15 @@ const MENU = [
   { to: '/listing', label: '상품등록 최적화' },
   { to: '/sales', label: '매출 리포트' },
   { to: '/edu', label: 'AI 교육' },
+  { to: '/about', label: '제작기' },
 ]
 
 export default function Layout() {
   return (
     <div className="app-shell">
+      <a href="#main-content" className="skip-link">
+        본문으로 건너뛰기
+      </a>
       <header className="topbar">
         <NavLink to="/" className="topbar-brand">
           <span className="topbar-logo">AX</span>
@@ -30,7 +34,7 @@ export default function Layout() {
           ))}
         </nav>
       </header>
-      <main className="app-main">
+      <main className="app-main" id="main-content">
         <Outlet />
       </main>
       <footer className="app-footer">

@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import HubPage from './pages/HubPage.jsx'
 
+const AboutPage = lazy(() => import('./pages/AboutPage.jsx'))
 const DetailPage = lazy(() => import('./pages/DetailPage.jsx'))
 const ContentPage = lazy(() => import('./pages/ContentPage.jsx'))
 const ListingPage = lazy(() => import('./pages/ListingPage.jsx'))
@@ -14,6 +15,14 @@ function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<HubPage />} />
+        <Route
+          path="/about"
+          element={
+            <Suspense fallback={<p className="page-loading">불러오는 중...</p>}>
+              <AboutPage />
+            </Suspense>
+          }
+        />
         <Route
           path="/detail-page"
           element={

@@ -1,0 +1,120 @@
+import { Link } from 'react-router-dom'
+
+const MAPPING = [
+  {
+    duty: 'A. 자동화 파이프라인 구축 — 매출분석, 상품등록/검색어 최적화, 판매통계',
+    demos: [
+      { to: '/listing', label: '상품등록 · 검색어 최적화' },
+      { to: '/sales', label: '매출 리포트 자동화' },
+    ],
+    point: 'CSV 집계는 브라우저 로컬 처리, AI에는 요약만 전달 — 데이터 최소 전송 설계',
+  },
+  {
+    duty: 'B. 콘텐츠 생성 및 관리 — 채널별 콘텐츠, AI로 상품페이지 제작 (필수 자격요건)',
+    demos: [
+      { to: '/detail-page', label: 'AI 상품 상세페이지 생성기' },
+      { to: '/content', label: '채널 콘텐츠 팩토리' },
+    ],
+    point: '결과물을 HTML·디자인 브리프로 내보내 디자이너 협업 흐름까지 구현',
+  },
+  {
+    duty: 'C. 반복 업무 자동화·효율화, 직원 AI 사용 교육',
+    demos: [{ to: '/edu', label: '직원 AI 교육 가이드' }],
+    point: '교육 페이지 자체가 교육 업무의 샘플 결과물',
+  },
+]
+
+const PROCESS = [
+  {
+    step: '기획',
+    title: '공고를 분해하는 것부터',
+    body: '채용공고의 담당업무 3줄을 기능 명세로 바꾸고, 자격요건("AI로 상품페이지 제작 가능")을 1순위 데모로 배치했습니다. 회사가 건강기능식품 유통사라는 점에서 표시광고법 리스크 관리를 차별화 포인트로 잡았습니다.',
+  },
+  {
+    step: '설계',
+    title: 'AI는 초안, 규정은 기계, 결정은 사람',
+    body: '모든 데모가 같은 파이프라인을 탑니다: 실무자 입력 → AI 생성 → 규칙 기반 금칙어 점검 → 사람 검수. 규제 카테고리에서 AI를 실무에 넣을 때 필요한 최소한의 안전장치를 제품에 직접 박았습니다.',
+  },
+  {
+    step: '구현',
+    title: '실제 배포되는 풀스택',
+    body: 'React 19 + Vite 프론트, Cloudflare Pages Functions 백엔드, D1 레이트리밋, Claude Opus 4.8 tool 강제 호출(구조화 JSON 응답). API 키가 없어도 전체 흐름이 시연되도록 샘플 폴백 모드를 설계했습니다.',
+  },
+  {
+    step: '개선 ×5',
+    title: '실사이트 벤치마킹 반복',
+    body: '배포 후 채널톡·토스·미리캔버스·Buffer·Mixpanel 등 실제 서비스를 벤치마킹하며 5차례 개선했습니다: 수치 기반 카피 → 모바일 미리보기 → 채널 목업 → 대시보드 필터 → 이 제작기 페이지. 전 과정은 저장소의 기획안·개선기획안 문서에 기록되어 있습니다.',
+  },
+]
+
+export default function AboutPage() {
+  return (
+    <div className="tool-page about-page">
+      <header className="tool-header">
+        <span className="tool-tag">이 포트폴리오에 대하여</span>
+        <h1>공고의 담당업무를, 동작하는 제품으로</h1>
+        <p>
+          이 사이트는 "AI 활용 및 자동화 담당자" 채용공고 하나를 위해 만든 맞춤 포트폴리오입니다.
+          이력서 문장 대신, 입사 후 할 일을 미리 만들어 보여드리는 방식을 택했습니다.
+        </p>
+      </header>
+
+      <section className="about-section">
+        <h2>공고 담당업무 ↔ 데모 매핑</h2>
+        <div className="about-mapping">
+          {MAPPING.map((m) => (
+            <article className="about-map-card" key={m.duty}>
+              <p className="about-duty">{m.duty}</p>
+              <div className="about-demo-links">
+                {m.demos.map((d) => (
+                  <Link key={d.to} to={d.to} className="btn-ghost">
+                    {d.label} →
+                  </Link>
+                ))}
+              </div>
+              <p className="about-point">{m.point}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="about-section">
+        <h2>제작 과정</h2>
+        <ol className="about-process">
+          {PROCESS.map((p) => (
+            <li key={p.step}>
+              <span className="about-step">{p.step}</span>
+              <div>
+                <h3>{p.title}</h3>
+                <p>{p.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="about-section">
+        <h2>품질을 지킨 방법</h2>
+        <ul className="plain-list">
+          <li>vitest 단위 테스트 15개 — CSV 파서·집계·이상 감지·금칙어 스캐너의 경계 사례 검증</li>
+          <li>oxlint 정적 분석 무경고 유지, 모든 개선 사이클마다 테스트 통과 후 배포</li>
+          <li>생성 문구는 식품표시광고법 제8조 기준 4분류 금칙어 규칙으로 이중 점검</li>
+          <li>판매 데이터 원본은 서버로 전송하지 않음 — 집계 요약만 AI에 전달</li>
+        </ul>
+      </section>
+
+      <section className="hub-closing">
+        <h2>데모로 확인해 보세요</h2>
+        <p>모든 데모는 예시 데이터가 채워져 있어 버튼 한 번이면 결과가 나옵니다.</p>
+        <div className="hub-cta">
+          <Link to="/detail-page" className="btn-primary">
+            상세페이지 생성기 실행
+          </Link>
+          <Link to="/sales" className="btn-ghost">
+            매출 리포트 실행
+          </Link>
+        </div>
+      </section>
+    </div>
+  )
+}
