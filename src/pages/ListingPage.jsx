@@ -7,6 +7,32 @@ import DemoBadge from '../components/DemoBadge.jsx'
 const SAMPLE_RISKY_COPY =
   '변비 치료에 즉시 효과! 국내 1위 유일한 유산균으로 장 질병 예방과 디톡스, 독소 배출까지 한 번에. 100% 효과 보장!'
 
+// 스캔 결과를 <mark> 하이라이트로 렌더 (겹치는 매치는 앞선 것 우선)
+function HighlightedText({ text, findings }) {
+  const segments = []
+  let cursor = 0
+  for (const f of findings) {
+    if (f.index < cursor) continue
+    if (f.index > cursor) segments.push({ text: text.slice(cursor, f.index) })
+    segments.push({ text: text.slice(f.index, f.index + f.word.length), severity: f.severity })
+    cursor = f.index + f.word.length
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor) })
+  return (
+    <p className="highlight-box" aria-label="금칙어 하이라이트 미리보기">
+      {segments.map((s, i) =>
+        s.severity ? (
+          <mark key={i} className={s.severity === 'high' ? 'mark-high' : 'mark-mid'}>
+            {s.text}
+          </mark>
+        ) : (
+          <span key={i}>{s.text}</span>
+        )
+      )}
+    </p>
+  )
+}
+
 export default function ListingPage() {
   const [form, setForm] = useState({
     name: PRODUCT_PRESETS[0].name,
@@ -17,9 +43,16 @@ export default function ListingPage() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [copyText, setCopyText] = useState(SAMPLE_RISKY_COPY)
+  const [copiedTitle, setCopiedTitle] = useState('')
 
   const findings = useMemo(() => scanText(copyText), [copyText])
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+
+  async function copyTitle(t) {
+    await navigator.clipboard.writeText(t)
+    setCopiedTitle(t)
+    setTimeout(() => setCopiedTitle(''), 1500)
+  }
 
   async function generate(e) {
     e.preventDefault()
@@ -91,9 +124,27 @@ export default function ListingPage() {
               <section>
                 <h3>검색최적화 상품명 후보</h3>
                 <ol className="listing-titles">
-                  {result.titles.map((t) => (
-                    <li key={t}>{t}</li>
-                  ))}
+                  {result.titles.map((t) => {
+                    const titleFindings = scanText(t)
+                    return (
+                      <li key={t}>
+                        <div className="listing-title-row">
+                          <span className="listing-title-text">{t}</span>
+                          <span className={t.length > 50 ? 'char-count over' : 'char-count'}>
+                            {t.length}/50자
+                          </span>
+                          <button type="button" className="copy-mini" onClick={() => copyTitle(t)}>
+                            {copiedTitle === t ? '✓' : '복사'}
+                          </button>
+                        </div>
+                        {titleFindings.length > 0 && (
+                          <p className="listing-title-warn">
+                            ⚠ 금칙어 재점검 필요: {titleFindings.map((f) => f.word).join(', ')}
+                          </p>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ol>
               </section>
               <section>
@@ -146,6 +197,7 @@ export default function ListingPage() {
           onChange={(e) => setCopyText(e.target.value)}
           aria-label="점검할 광고 문구"
         />
+        {findings.length > 0 && <HighlightedText text={copyText} findings={findings} />}
         <div className="scanner-verdict">
           {findings.length === 0 ? (
             <p className="scan-ok">규칙 기반 점검에서 위험 표현이 발견되지 않았습니다. (최종 판단은 심의 기준을 따르세요)</p>

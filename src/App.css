@@ -892,7 +892,241 @@
   overflow-x: auto;
 }
 
+.content-card-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.char-count {
+  font-size: 12px;
+  color: var(--ink-400);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.char-count.over {
+  color: var(--red-600);
+  font-weight: 700;
+}
+
+.content-tags {
+  margin-top: 12px;
+}
+
+/* 인스타그램/스레드 목업 */
+.ig-mock {
+  max-width: 400px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.ig-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.ig-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f9ce34, #ee2a7b 55%, #6228d7);
+  flex-shrink: 0;
+}
+
+.ig-account {
+  font-size: 13.5px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.ig-sponsored {
+  font-size: 11.5px;
+  color: var(--ink-400);
+  margin: 0;
+}
+
+.ig-image {
+  aspect-ratio: 1;
+  background: repeating-linear-gradient(45deg, #f3f2ef, #f3f2ef 12px, #eceae5 12px, #eceae5 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-400);
+  font-size: 13px;
+}
+
+.ig-actions {
+  padding: 10px 14px 4px;
+  font-size: 18px;
+  letter-spacing: 6px;
+  color: var(--ink-600);
+}
+
+.ig-caption {
+  padding: 6px 14px 16px;
+  font-size: 13.5px;
+}
+
+.ig-caption p {
+  margin: 0 0 6px;
+}
+
+.ig-body {
+  white-space: pre-wrap;
+  color: var(--ink-900);
+  line-height: 1.7;
+}
+
+.ig-tags {
+  color: #00376b;
+  line-height: 1.6;
+}
+
+.threads-mock .ig-caption {
+  padding-top: 0;
+}
+
+.threads-mock .ig-actions {
+  padding-bottom: 14px;
+  letter-spacing: 10px;
+}
+
+/* 카드뉴스 슬라이드 */
+.cardnews-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.cardnews-slide {
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.cardnews-slide.cover {
+  background: var(--green-700);
+  border-color: var(--green-700);
+  color: #fff;
+}
+
+.cardnews-slide.cover .cardnews-num {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.cardnews-slide.cover p {
+  font-weight: 700;
+  font-size: 14.5px;
+}
+
+.cardnews-num {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--blue-050);
+  color: var(--blue-600);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.cardnews-slide p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+/* 영상 장면 표 */
+.scene-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.scene-table th,
+.scene-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.scene-table th {
+  background: var(--page);
+  color: var(--ink-400);
+  font-size: 12px;
+}
+
+.scene-time {
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--blue-600);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===== 리스팅 최적화 ===== */
+.listing-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.listing-title-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.listing-title-warn {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--amber-600);
+  font-weight: 600;
+}
+
+.highlight-box {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 14.5px;
+  line-height: 1.9;
+}
+
+.mark-high {
+  background: #fee2e2;
+  color: var(--red-600);
+  font-weight: 700;
+  padding: 1px 3px;
+  border-radius: 4px;
+}
+
+.mark-mid {
+  background: #fef3c7;
+  color: var(--amber-600);
+  font-weight: 700;
+  padding: 1px 3px;
+  border-radius: 4px;
+}
+
 .listing-result {
   display: flex;
   flex-direction: column;

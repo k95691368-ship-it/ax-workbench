@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
+import ChannelPreview from '../components/ChannelPreview.jsx'
 
 export default function ContentPage() {
   const [product, setProduct] = useState(PRODUCT_PRESETS[0])
@@ -136,13 +137,16 @@ export default function ContentPage() {
                 <article className="content-card">
                   <div className="content-card-head">
                     <h3>{active.title}</h3>
-                    <button type="button" className="btn-ghost" onClick={() => copy(active)}>
-                      {copied === active.channel ? '복사됨 ✓' : '본문 복사'}
-                    </button>
+                    <div className="content-card-tools">
+                      <span className="char-count">{active.body.length.toLocaleString('ko-KR')}자</span>
+                      <button type="button" className="btn-ghost" onClick={() => copy(active)}>
+                        {copied === active.channel ? '복사됨 ✓' : '본문 복사'}
+                      </button>
+                    </div>
                   </div>
-                  <pre className="content-body">{active.body}</pre>
-                  {active.hashtags?.length > 0 && (
-                    <div className="chip-row">
+                  <ChannelPreview item={active} />
+                  {active.channel !== 'instagram' && active.hashtags?.length > 0 && (
+                    <div className="chip-row content-tags">
                       {active.hashtags.map((h) => (
                         <span className="chip" key={h}>#{h}</span>
                       ))}
