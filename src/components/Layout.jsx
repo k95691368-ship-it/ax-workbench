@@ -3,9 +3,11 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 
 const MENU = [
   { to: '/', label: '홈', end: true },
-  { to: '/detail-page', label: '상세페이지 생성' },
-  { to: '/content', label: '콘텐츠 팩토리' },
-  { to: '/listing', label: '상품등록 최적화' },
+  { to: '/detail-page', label: '상세페이지' },
+  { to: '/content', label: '콘텐츠' },
+  { to: '/listing', label: '상품등록' },
+  { to: '/batch', label: '대량 등록' },
+  { to: '/reviews', label: '리뷰 응대' },
   { to: '/sales', label: '매출 리포트' },
   { to: '/edu', label: 'AI 교육' },
   { to: '/about', label: '제작기' },
@@ -48,6 +50,8 @@ export default function Layout() {
             <Link to="/detail-page">상세페이지 생성기</Link>
             <Link to="/content">채널 콘텐츠 팩토리</Link>
             <Link to="/listing">상품등록 최적화</Link>
+            <Link to="/batch">대량 등록 도우미</Link>
+            <Link to="/reviews">리뷰 자동 응대</Link>
             <Link to="/sales">매출 리포트 자동화</Link>
             <Link to="/edu">직원 AI 교육 가이드</Link>
           </div>
