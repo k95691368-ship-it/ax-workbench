@@ -46,7 +46,7 @@ export default function Layout() {
       <footer className="app-footer">
         <div className="footer-grid">
           <div className="footer-col">
-            <p className="footer-title">데모 바로가기</p>
+            <p className="footer-title">기능 바로가기</p>
             <Link to="/detail-page">상세페이지 생성기</Link>
             <Link to="/content">채널 콘텐츠 팩토리</Link>
             <Link to="/listing">상품등록 최적화</Link>

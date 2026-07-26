@@ -58,7 +58,7 @@ export default function HubPage() {
   return (
     <div className="hub">
       <section className="hub-hero">
-        <p className="hub-eyebrow">AX 취업 포트폴리오 — AI 업무자동화 라이브 데모</p>
+        <p className="hub-eyebrow">AI 업무자동화 취업 포트폴리오 — 지금 실제로 동작합니다</p>
         <h1>
           반복 업무는 AI에게,
           <br />
@@ -73,7 +73,7 @@ export default function HubPage() {
             30초 만에 상세페이지부터 만들어 보세요
           </Link>
           <Link to="/sales" className="btn-ghost">
-            매출 리포트 데모 보기
+            매출 리포트 바로 보기
           </Link>
         </div>
       </section>
@@ -89,7 +89,7 @@ export default function HubPage() {
       </section>
 
       <section className="hub-pipeline" aria-label="자동화 파이프라인">
-        <h2>모든 데모에 같은 원칙을 넣었습니다</h2>
+        <h2>모든 기능에 같은 원칙을 넣었습니다</h2>
         <p className="hub-pipeline-sub">
           AI가 초안을 만들고, 규정 위반은 기계적으로 걸러내고, 최종 결정은 사람이 합니다.
           건강기능식품처럼 규제가 있는 카테고리에서 특히 중요한 설계입니다.
@@ -105,14 +105,14 @@ export default function HubPage() {
       </section>
 
       <section className="hub-demos">
-        <h2>데모 7가지 — 채용공고의 담당업무 그대로</h2>
+        <h2>기능 7가지 — 채용공고의 담당업무 그대로</h2>
         <div className="hub-grid">
           {DEMOS.map((d) => (
             <Link key={d.to} to={d.to} className="hub-card">
               <span className="hub-card-tag">{d.tag}</span>
               <h3>{d.title}</h3>
               <p>{d.desc}</p>
-              <span className="hub-card-go">데모 실행 →</span>
+              <span className="hub-card-go">직접 써보기 →</span>
             </Link>
           ))}
         </div>
@@ -121,15 +121,15 @@ export default function HubPage() {
       <section className="hub-closing">
         <h2>궁금하시다면, 지금 하나만 눌러 보세요</h2>
         <p>
-          모든 데모는 예시 데이터가 채워져 있어 입력 없이 버튼 한 번으로 결과를 확인할 수
+          모든 기능은 예시 데이터가 채워져 있어 입력 없이 버튼 한 번으로 결과를 확인할 수
           있습니다.
         </p>
         <div className="hub-cta">
           <Link to="/detail-page" className="btn-primary">
-            상세페이지 생성 데모 실행
+            상세페이지 생성해 보기
           </Link>
           <Link to="/listing" className="btn-ghost">
-            금칙어 점검 데모 실행
+            금칙어 점검해 보기
           </Link>
         </div>
       </section>

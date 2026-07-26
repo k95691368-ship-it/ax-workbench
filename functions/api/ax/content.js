@@ -151,7 +151,7 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, `ax:content:${ip}`, 8, 3600)))
     return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'ax:content:all', 60, 3600)))
-    return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   const specs = channels.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
   let userContent = `[제품 정보]\n${JSON.stringify(product, null, 2)}\n\n[요청 채널과 스펙]\n${specs}\n\n요청된 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`

@@ -104,7 +104,7 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, `ax:batch:${ip}`, 4, 3600)))
     return errorJson('대량 처리는 시간당 4회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'ax:batch:all', 30, 3600)))
-    return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
     const { input: result, usage } = await callClaudeTool(env, {

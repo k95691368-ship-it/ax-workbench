@@ -106,7 +106,7 @@ export default function BatchPage() {
           </label>
           <div className="batch-meta">
             <span className={parsed.products.length > 0 ? 'batch-count ok' : 'batch-count'}>
-              {parsed.products.length}개 인식됨 (데모는 한 번에 최대 {BATCH_MAX}개)
+              {parsed.products.length}개 인식됨 (포트폴리오 버전은 한 번에 최대 {BATCH_MAX}개)
             </span>
             {parsed.overflow > 0 && (
               <span className="batch-overflow">초과 {parsed.overflow}개는 이번 처리에서 제외됩니다</span>
@@ -126,7 +126,7 @@ export default function BatchPage() {
             <div className="result-empty">
               <p>샘플 5개가 채워져 있어요. 일괄 최적화 버튼만 누르면 됩니다.</p>
               <p className="result-empty-sub">
-                "하나씩 1,000번"이 아니라 "목록째 한 번에" — 반복 업무를 대체하는 AX의 핵심 데모입니다.
+                "하나씩 1,000번"이 아니라 "목록째 한 번에" — 반복 업무를 대체하는 AX의 핵심 기능입니다.
               </p>
             </div>
           )}

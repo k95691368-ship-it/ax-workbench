@@ -173,7 +173,7 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, `ax:detail:${ip}`, 8, 3600)))
     return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'ax:detail:all', 60, 3600)))
-    return errorJson('데모 사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
     const { input: result, usage } = await callClaudeTool(env, {

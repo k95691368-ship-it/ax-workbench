@@ -33,7 +33,7 @@ const PROCESS = [
   {
     step: '기획',
     title: '공고를 분해하는 것부터',
-    body: '채용공고의 담당업무 3줄을 기능 명세로 바꾸고, 자격요건("AI로 상품페이지 제작 가능")을 1순위 데모로 배치했습니다. 회사가 건강기능식품 유통사라는 점에서 표시광고법 리스크 관리를 차별화 포인트로 잡았습니다.',
+    body: '채용공고의 담당업무 3줄을 기능 명세로 바꾸고, 자격요건("AI로 상품페이지 제작 가능")을 1순위 기능으로 배치했습니다. 회사가 건강기능식품 유통사라는 점에서 표시광고법 리스크 관리를 차별화 포인트로 잡았습니다.',
   },
   {
     step: '설계',
@@ -127,7 +127,7 @@ export default function AboutPage() {
             <thead>
               <tr>
                 <th>공고 요건</th>
-                <th>증명 데모</th>
+                <th>증명 기능</th>
                 <th>구현 근거</th>
               </tr>
             </thead>
@@ -174,7 +174,7 @@ export default function AboutPage() {
             </div>
           </div>
           <p className="about-point">
-            호출마다 모드(라이브/데모/폴백)·소요시간·토큰을 D1에 기록하고 집계합니다. 개인정보는
+            호출마다 모드(라이브/샘플/폴백)·소요시간·토큰을 D1에 기록하고 집계합니다. 개인정보는
             저장하지 않습니다.
           </p>
         </section>
@@ -201,14 +201,14 @@ export default function AboutPage() {
           </div>
           <div className="arch-notes">
             <p>• <strong>D1 데이터베이스</strong> — IP별·전체·일일 예산 레이트리밋 (비용 폭주 방지)</p>
-            <p>• <strong>장애·한도 초과 시</strong> — 502 에러 대신 큐레이션된 예시 결과로 우아하게 강등 (데모 무중단)</p>
+            <p>• <strong>장애·한도 초과 시</strong> — 502 에러 대신 큐레이션된 예시 결과로 우아하게 강등 (서비스 무중단)</p>
             <p>• <strong>이중 컴플라이언스</strong> — 프롬프트에 표시광고 금지 규칙 주입 + 생성 결과를 규칙 엔진으로 재점검</p>
           </div>
         </div>
       </section>
 
       <section className="about-section">
-        <h2>공고 담당업무 ↔ 데모 매핑</h2>
+        <h2>공고 담당업무 ↔ 기능 매핑</h2>
         <div className="about-mapping">
           {MAPPING.map((m) => (
             <article className="about-map-card" key={m.duty}>
@@ -252,8 +252,8 @@ export default function AboutPage() {
       </section>
 
       <section className="hub-closing">
-        <h2>데모로 확인해 보세요</h2>
-        <p>모든 데모는 예시 데이터가 채워져 있어 버튼 한 번이면 결과가 나옵니다.</p>
+        <h2>직접 확인해 보세요</h2>
+        <p>모든 기능은 예시 데이터가 채워져 있어 버튼 한 번이면 결과가 나옵니다.</p>
         <div className="hub-cta">
           <Link to="/detail-page" className="btn-primary">
             상세페이지 생성기 실행
