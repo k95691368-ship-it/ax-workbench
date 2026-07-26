@@ -1,7 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import GenProgress from '../components/GenProgress.jsx'
+
+const GEN_STEPS = [
+  '리뷰를 유형별로 분류하고 있어요',
+  '유형에 맞는 답변 초안을 쓰고 있어요',
+  '사람의 판단이 필요한 건을 선별하고 있어요',
+]
 
 const SAMPLE = `맛도 좋고 배송도 빨라요. 아이들이랑 잘 먹고 있어서 재구매했습니다!
 주문한 지 5일이 지났는데 아직도 배송이 안 와요. 언제 오나요?
@@ -24,6 +31,7 @@ export default function ReviewsPage() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState('')
+  const resultRef = useRef(null)
 
   const reviews = useMemo(
     () => text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 8),
@@ -42,6 +50,7 @@ export default function ReviewsPage() {
       const data = await postJson('/api/ax/reviews', { reviews })
       data.results = Array.isArray(data.results) ? data.results : []
       setResult(data)
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -91,14 +100,14 @@ export default function ReviewsPage() {
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
 
-        <div className="tool-result">
+        <div className="tool-result" ref={resultRef}>
           {!result && !loading && (
             <div className="result-empty">
               <p>샘플 리뷰 5건이 채워져 있어요 — 그중 하나는 일부러 "건강 이상 호소" 건입니다.</p>
               <p className="result-empty-sub">AI가 그 건만 골라 "담당자 확인 필요"로 올리는지 지켜보세요.</p>
             </div>
           )}
-          {loading && <div className="result-empty"><p>{reviews.length}건을 분류하고 답변을 쓰는 중...</p></div>}
+          {loading && <GenProgress steps={GEN_STEPS} />}
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />

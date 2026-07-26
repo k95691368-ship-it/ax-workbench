@@ -1,10 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import ChannelPreview from '../components/ChannelPreview.jsx'
 import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import GenProgress from '../components/GenProgress.jsx'
+
+const GEN_STEPS = [
+  '제품 정보를 분석하고 있어요',
+  '채널별 문법을 적용하고 있어요',
+  '채널별 콘텐츠를 쓰고 있어요',
+  '표시광고 기준으로 검수하고 있어요',
+]
 
 const QUICK_FEEDBACK = [
   '첫 줄 후킹을 더 강하게',
@@ -25,6 +33,7 @@ export default function ContentPage() {
   const [revising, setRevising] = useState(false)
   const [activeTab, setActiveTab] = useState('')
   const [copied, setCopied] = useState('')
+  const resultRef = useRef(null)
 
   const result = versions[activeVer] || null
 
@@ -49,6 +58,7 @@ export default function ContentPage() {
       setActiveVer(0)
       setFeedback('')
       setActiveTab(data.results[0]?.channel || '')
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -166,14 +176,14 @@ export default function ContentPage() {
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
 
-        <div className="tool-result">
+        <div className="tool-result" ref={resultRef}>
           {!result && !loading && (
             <div className="result-empty">
               <p>제품을 고르고 채널을 선택한 뒤 생성 버튼을 누르세요.</p>
               <p className="result-empty-sub">같은 제품이라도 채널마다 말투·구조·길이가 달라지는 것이 포인트입니다.</p>
             </div>
           )}
-          {loading && <div className="result-empty"><p>채널별 문법에 맞춰 콘텐츠를 쓰는 중...</p></div>}
+          {loading && <GenProgress steps={GEN_STEPS} />}
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />

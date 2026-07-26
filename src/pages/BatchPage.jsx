@@ -1,8 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import { parseProducts, BATCH_MAX } from '../lib/batchParse.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import GenProgress from '../components/GenProgress.jsx'
+
+const GEN_STEPS = [
+  '상품 목록을 해석하고 있어요',
+  '상품별 검색 키워드를 조합하고 있어요',
+  '상품명을 일괄 최적화하고 있어요',
+  '표시광고 금칙어를 점검하고 있어요',
+]
 
 const SAMPLE = `데일리 장편한 유산균 30포 | 건강기능식품 > 프로바이오틱스 | 19종 혼합 유산균, 보장균수 100억 CFU, 아연 함유
 바삭 곱창돌김 도시락김 16봉 | 식품 > 김/해조류 | 남해안 원초, 저온 2회 구이, 들기름+참기름
@@ -18,6 +26,7 @@ export default function BatchPage() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState('')
+  const resultRef = useRef(null)
 
   const parsed = useMemo(() => parseProducts(text), [text])
 
@@ -33,6 +42,7 @@ export default function BatchPage() {
       const data = await postJson('/api/ax/batch-listing', { products: parsed.products })
       data.results = Array.isArray(data.results) ? data.results : []
       setResult(data)
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -111,7 +121,7 @@ export default function BatchPage() {
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
 
-        <div className="tool-result">
+        <div className="tool-result" ref={resultRef}>
           {!result && !loading && (
             <div className="result-empty">
               <p>샘플 5개가 채워져 있어요. 일괄 최적화 버튼만 누르면 됩니다.</p>
@@ -120,11 +130,7 @@ export default function BatchPage() {
               </p>
             </div>
           )}
-          {loading && (
-            <div className="result-empty">
-              <p>{parsed.products.length}개 상품을 한 번의 호출로 처리하는 중...</p>
-            </div>
-          )}
+          {loading && <GenProgress steps={GEN_STEPS} />}
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />

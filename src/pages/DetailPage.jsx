@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { DP_THEMES, getTheme, orbStyle, makeCustomTheme, fileToResizedDataUrl } from '../lib/themes.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import GenProgress from '../components/GenProgress.jsx'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
 
@@ -99,7 +100,6 @@ function buildBrief(result, product, theme) {
 export default function DetailPage() {
   const [form, setForm] = useState(PRODUCT_PRESETS[0])
   const [loading, setLoading] = useState(false)
-  const [step, setStep] = useState(0)
   const [error, setError] = useState('')
   const [versions, setVersions] = useState([])
   const [activeVer, setActiveVer] = useState(0)
@@ -156,15 +156,6 @@ export default function DetailPage() {
   }
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
-
-  useEffect(() => {
-    if (!loading) return undefined
-    setStep(0)
-    const timer = setInterval(() => {
-      setStep((s) => Math.min(s + 1, LOADING_STEPS.length - 1))
-    }, 3500)
-    return () => clearInterval(timer)
-  }, [loading])
 
   async function generate(e) {
     e?.preventDefault()
@@ -300,17 +291,7 @@ export default function DetailPage() {
               <p className="result-empty-sub">생성 → 모바일 미리보기 → HTML·브리프 다운로드 → 디자이너 인계 흐름을 시연합니다.</p>
             </div>
           )}
-          {loading && (
-            <div className="result-empty gen-progress" aria-live="polite">
-              <ol className="gen-steps">
-                {LOADING_STEPS.map((s, i) => (
-                  <li key={s} className={i < step ? 'done' : i === step ? 'now' : ''}>
-                    {i < step ? '✓' : i === step ? '●' : '○'} {s}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
+          {loading && <GenProgress steps={LOADING_STEPS} />}
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />

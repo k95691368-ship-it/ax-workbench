@@ -105,7 +105,7 @@ export default function HubPage() {
       </section>
 
       <section className="hub-demos">
-        <h2>데모 5가지 — 채용공고의 담당업무 그대로</h2>
+        <h2>데모 7가지 — 채용공고의 담당업무 그대로</h2>
         <div className="hub-grid">
           {DEMOS.map((d) => (
             <Link key={d.to} to={d.to} className="hub-card">
