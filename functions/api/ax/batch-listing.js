@@ -9,6 +9,7 @@ import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
 import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
+import { runAll, sumUsage } from '../../_lib/parallel.js'
 
 // 한 번에 처리하는 상품 수.
 //
@@ -139,28 +140,20 @@ function shapeRows(raw, groupProducts) {
 // 한 묶음이 실패하거나 일부 상품이 빠져도 그 자리만 예시 결과로 채우고 나머지는 살린다.
 // 전부 실패했을 때만 예외를 던져 기존 폴백 경로로 넘긴다.
 export async function generateBatch(env, { system, products }) {
-  const started = Date.now()
   const groups = chunk(products)
-  const elapsed = Array.from({ length: groups.length }, () => 0)
-
-  const settled = await Promise.allSettled(
-    groups.map((group, gi) => {
-      const s = Date.now()
-      return callClaudeTool(env, {
+  const { settled, timing } = await runAll(
+    groups.map((group) => () =>
+      callClaudeTool(env, {
         system,
         user: buildUserContent(group),
         tool: TOOL,
         maxTokens: 8192,
         timeoutMs: 70000,
-      }).finally(() => {
-        elapsed[gi] = Date.now() - s
       })
-    })
+    )
   )
 
   const rows = []
-  let inputTokens = 0
-  let outputTokens = 0
   let liveGroups = 0
   let demoFilled = 0
 
@@ -184,8 +177,6 @@ export async function generateBatch(env, { system, products }) {
     if (shaped.length === 0) return fillDemo(group)
 
     liveGroups += 1
-    inputTokens += res.value.usage?.input_tokens || 0
-    outputTokens += res.value.usage?.output_tokens || 0
     rows.push(...shaped)
     // 묶음 안에서 일부 상품이 빠졌으면 그 자리만 예시로 채운다 (행 수와 순서를 지킨다)
     if (shaped.length < group.length) fillDemo(group.slice(shaped.length))
@@ -194,17 +185,7 @@ export async function generateBatch(env, { system, products }) {
   // 전부 실패했을 때만 예외를 던져 기존 폴백 경로로 넘긴다
   if (liveGroups === 0) throw failure('contract', 'AI 응답이 불완전합니다. 다시 시도해주세요.')
 
-  return {
-    rows,
-    usage: { input_tokens: inputTokens, output_tokens: outputTokens },
-    failedCount: demoFilled,
-    timing: {
-      total_ms: Date.now() - started,
-      serial_ms: elapsed.reduce((a, b) => a + b, 0),
-      slowest_ms: Math.max(0, ...elapsed),
-      calls: groups.length,
-    },
-  }
+  return { rows, usage: sumUsage(settled), failedCount: demoFilled, timing }
 }
 
 export async function onRequestPost(context) {

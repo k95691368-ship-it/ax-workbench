@@ -19,6 +19,7 @@
 // 부분 실패 격리: 한 섹션이 실패해도 나머지로 페이지를 완성한다.
 
 import { callClaudeTool, failure } from './claude.js'
+import { runAll, sumUsage } from './parallel.js'
 
 // 상세페이지 5단 구성. 각 섹션의 범위가 겹치지 않도록 역할을 명확히 나눈다.
 export const SECTION_BLUEPRINT = [
@@ -141,44 +142,28 @@ const MIN_SECTIONS = 2
 // 상세페이지를 한 번에 병렬로 생성한다.
 // 반환: { result, usage, degraded, timing }
 export async function generateDetail(env, { system, productBlock, timeoutMs = 60000 }) {
-  const started = Date.now()
-  const elapsed = Array.from({ length: SECTION_BLUEPRINT.length + 1 }, () => 0)
-
-  const track = (i, promise) => {
-    const s = Date.now()
-    return promise.finally(() => {
-      elapsed[i] = Date.now() - s
-    })
-  }
-
   // 프레임(헤드라인·FAQ·키워드·메모)과 섹션 5개를 t=0에 함께 띄운다.
   // 어느 것도 다른 것의 결과를 기다리지 않는다 — 그게 이 구조의 핵심이다.
-  const jobs = [
-    track(
-      0,
+  const { settled, timing } = await runAll([
+    () =>
       callClaudeTool(env, {
         system,
         user: frameUserContent(productBlock),
         tool: FRAME_TOOL,
         maxTokens: FRAME_MAX_TOKENS,
         timeoutMs,
+      }),
+    ...SECTION_BLUEPRINT.map((_, i) => () =>
+      callClaudeTool(env, {
+        system,
+        user: sectionUserContent(productBlock, i),
+        tool: SECTION_TOOL,
+        maxTokens: SECTION_MAX_TOKENS,
+        timeoutMs,
       })
     ),
-    ...SECTION_BLUEPRINT.map((_, i) =>
-      track(
-        i + 1,
-        callClaudeTool(env, {
-          system,
-          user: sectionUserContent(productBlock, i),
-          tool: SECTION_TOOL,
-          maxTokens: SECTION_MAX_TOKENS,
-          timeoutMs,
-        })
-      )
-    ),
-  ]
+  ])
 
-  const settled = await Promise.allSettled(jobs)
   const [frameResult, ...sectionResults] = settled
 
   // 헤드라인이 없으면 상세페이지라고 부를 수 없다 — 프레임 실패는 강등 사유다.
@@ -191,8 +176,6 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
 
   const sections = []
   let failed = 0
-  let inputTokens = frameResult.value.usage?.input_tokens || 0
-  let outputTokens = frameResult.value.usage?.output_tokens || 0
 
   sectionResults.forEach((r) => {
     const got = r.status === 'fulfilled' ? r.value.input : null
@@ -206,8 +189,6 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
       bullets: Array.isArray(got.bullets) ? got.bullets.filter((b) => typeof b === 'string' && b.trim()) : [],
       image_brief: String(got.image_brief || '').trim(),
     })
-    inputTokens += r.value.usage?.input_tokens || 0
-    outputTokens += r.value.usage?.output_tokens || 0
   })
 
   // 남은 섹션이 너무 적으면 상세페이지 구실을 못 한다 — 이때만 예시 결과로 강등한다.
@@ -224,17 +205,11 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
       keywords: frame.keywords,
       designer_notes: frame.designer_notes,
     },
-    usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+    usage: sumUsage(settled),
     degraded: failed
       ? `섹션 ${failed}개는 생성이 지연되어 빠졌습니다. 나머지 ${sections.length}개 섹션은 정상 생성되었습니다.`
       : null,
-    timing: {
-      total_ms: Date.now() - started,
-      // 개별 호출 시간의 합 — 예전 구조였다면 걸렸을 시간이다. total과의 차이가 병렬로 번 시간.
-      serial_ms: elapsed.reduce((a, b) => a + b, 0),
-      slowest_ms: Math.max(0, ...elapsed),
-      calls: elapsed.length,
-    },
+    timing,
   }
 }
 
@@ -246,25 +221,16 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
 // 재생성은 오히려 병렬에 더 잘 맞는다 — 각 섹션은 "자기 이전 원고 + 피드백"만 있으면
 // 고쳐 쓸 수 있기 때문이다. 그리고 실패했을 때 잃을 것도 없다: 이전 원고를 그대로 두면 된다.
 export async function reviseDetail(env, { system, productBlock, previous, feedback, timeoutMs = 60000 }) {
-  const started = Date.now()
   const prevSections = Array.isArray(previous.sections) ? previous.sections : []
   if (prevSections.length === 0) throw failure('contract', '이전 결과에 섹션이 없어 피드백을 반영할 수 없습니다.')
 
-  const elapsed = Array.from({ length: prevSections.length + 1 }, () => 0)
-  const track = (i, promise) => {
-    const s = Date.now()
-    return promise.finally(() => {
-      elapsed[i] = Date.now() - s
-    })
-  }
-
   const outline = prevSections.map((s, i) => `${i + 1}. ${s.title}`).join('\n')
 
-  const frameJob = track(
-    0,
-    callClaudeTool(env, {
-      system,
-      user: `[제품 정보]
+  const { settled, timing } = await runAll([
+    () =>
+      callClaudeTool(env, {
+        system,
+        user: `[제품 정보]
 ${productBlock}
 
 [이전 결과 — 헤드라인과 부속 정보]
@@ -283,15 +249,11 @@ ${outline}
 ${feedback}
 
 ${REVISE_GUIDE} 본문 섹션은 쓰지 마세요.`,
-      tool: REVISE_FRAME_TOOL,
-      maxTokens: FRAME_MAX_TOKENS,
-      timeoutMs,
-    })
-  )
-
-  const sectionJobs = prevSections.map((s, i) =>
-    track(
-      i + 1,
+        tool: REVISE_FRAME_TOOL,
+        maxTokens: FRAME_MAX_TOKENS,
+        timeoutMs,
+      }),
+    ...prevSections.map((s, i) => () =>
       callClaudeTool(env, {
         system,
         user: `[제품 정보]
@@ -311,19 +273,10 @@ ${REVISE_GUIDE} 이 섹션만 다시 쓰고, 다른 섹션이 맡은 내용은 �
         maxTokens: SECTION_MAX_TOKENS,
         timeoutMs,
       })
-    )
-  )
+    ),
+  ])
 
-  const [frameResult, ...sectionResults] = await Promise.allSettled([frameJob, ...sectionJobs])
-
-  let inputTokens = 0
-  let outputTokens = 0
-  const addUsage = (r) => {
-    if (r.status !== 'fulfilled' || !r.value.usage) return
-    inputTokens += r.value.usage.input_tokens || 0
-    outputTokens += r.value.usage.output_tokens || 0
-  }
-  addUsage(frameResult)
+  const [frameResult, ...sectionResults] = settled
 
   // 프레임 재작성이 실패하면 이전 헤드라인을 그대로 쓴다 — 고치려다 잃는 것보다 낫다.
   const frameOk = frameResult.status === 'fulfilled' && typeof frameResult.value.input?.headline === 'string'
@@ -331,7 +284,6 @@ ${REVISE_GUIDE} 이 섹션만 다시 쓰고, 다른 섹션이 맡은 내용은 �
   let kept = frameOk ? 0 : 1
 
   const sections = sectionResults.map((r, i) => {
-    addUsage(r)
     const got = r.status === 'fulfilled' ? r.value.input : null
     if (!got || typeof got.body !== 'string' || !got.body.trim() || !String(got.title || '').trim()) {
       // 재작성 실패 — 이전 원고를 유지한다. 예전 구조에서는 페이지 전체를 잃었다.
@@ -355,13 +307,8 @@ ${REVISE_GUIDE} 이 섹션만 다시 쓰고, 다른 섹션이 맡은 내용은 �
       keywords: frame.keywords,
       designer_notes: frame.designer_notes,
     },
-    usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+    usage: sumUsage(settled),
     degraded: kept ? `${kept}개 항목은 재작성이 지연되어 이전 내용을 그대로 두었습니다.` : null,
-    timing: {
-      total_ms: Date.now() - started,
-      serial_ms: elapsed.reduce((a, b) => a + b, 0),
-      slowest_ms: Math.max(0, ...elapsed),
-      calls: elapsed.length,
-    },
+    timing,
   }
 }

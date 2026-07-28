@@ -1,7 +1,7 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
-import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { callClaudeTool, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
@@ -10,6 +10,7 @@ import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNoti
 import { failureCode } from '../../_lib/claude.js'
 import { normalizeChannelContents } from '../../_lib/shape.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
+import { runAll, sumUsage } from '../../_lib/parallel.js'
 
 function withAdCheck(results, brand) {
   for (const r of results) {
@@ -32,31 +33,6 @@ const CHANNEL_SPECS = {
   threads: '스레드: 캐주얼한 톤의 짧은 글 1~3개 묶음. 각 500자 이내, 대화 걸듯이.',
   youtube: '유튜브 쇼츠(60초): 장면별 스크립트. 각 장면은 time(초), visual(화면 지시), narration(대사/자막).',
   tiktok: '틱톡(30~45초): 트렌디한 톤의 장면별 스크립트. 후킹 3초 규칙 적용. 각 장면은 time, visual, narration.',
-}
-
-const TOOL = {
-  name: 'record_channel_contents',
-  description: '하나의 제품 정보로 여러 SNS 채널별 콘텐츠를 작성해 기록한다.',
-  input_schema: {
-    type: 'object',
-    required: ['results'],
-    properties: {
-      results: {
-        type: 'array',
-        description: '요청된 각 채널별 콘텐츠',
-        items: {
-          type: 'object',
-          required: ['channel', 'title', 'body'],
-          properties: {
-            channel: { type: 'string', description: '채널 id (instagram, cardnews, blog, threads, youtube, tiktok 중 하나)' },
-            title: { type: 'string', description: '콘텐츠 제목 또는 첫 줄 후킹' },
-            body: { type: 'string', description: '본문 전체. 카드뉴스는 "1장: ..." 형식, 영상은 "0-3초: ..." 형식으로 장면 구분' },
-            hashtags: { type: 'array', items: { type: 'string' }, description: '해시태그 (# 제외, 해당 채널만)' },
-          },
-        },
-      },
-    },
-  },
 }
 
 const SYSTEM = `당신은 온라인 유통사의 SNS 콘텐츠 마케터입니다. 제품 정보 하나로 각 채널의 문법에 맞는 콘텐츠를 동시에 만듭니다.
@@ -105,6 +81,85 @@ function demoResult(channels) {
     demo: true,
     results: channels.map((ch) => ({ channel: ch, ...DEMO_BODIES[ch] })),
   }
+}
+
+// 채널 하나만 만드는 도구.
+// 예전에는 요청한 모든 채널을 한 응답에 담게 했다. 블로그 800자·카드뉴스 6장·영상
+// 스크립트가 한꺼번에 쌓이니 채널을 늘릴수록 느려지고, 그 한 번이 실패하면 전부 잃었다.
+const ONE_CHANNEL_TOOL = {
+  name: 'record_channel_content',
+  description: '지정된 채널 하나의 콘텐츠를 그 채널 문법에 맞게 작성해 기록한다.',
+  input_schema: {
+    type: 'object',
+    required: ['title', 'body'],
+    properties: {
+      title: { type: 'string', description: '콘텐츠 제목 또는 첫 줄 후킹' },
+      body: {
+        type: 'string',
+        description: '본문 전체. 카드뉴스는 "1장: ..." 형식, 영상은 "0-3초: ..." 형식으로 장면 구분',
+      },
+      hashtags: { type: 'array', items: { type: 'string' }, description: '해시태그 (# 제외)' },
+    },
+  },
+}
+
+function channelUserContent({ product, channel, channels, previous, feedback }) {
+  const others = channels.filter((c) => c !== channel)
+  let content = `[제품 정보]
+${userDataJson('제품 정보', product)}
+
+[지금 만들 채널]
+- ${channel}: ${CHANNEL_SPECS[channel]}
+
+[다른 채널도 동시에 만들어지고 있습니다 — 이 채널의 문법에만 집중하세요]
+${others.length ? others.join(', ') : '(없음)'}
+
+이 채널의 콘텐츠 하나만 만들어 기록하세요.`
+
+  if (previous) {
+    // 이 채널의 이전 결과만 준다 — 다른 채널 원고까지 주면 톤이 섞인다
+    const mine = (previous.results || []).find((r) => r?.channel === channel)
+    content += `
+
+[이 채널의 이전 결과]
+${JSON.stringify(mine || null)}
+
+[사용자 피드백]
+${userDataBlock('사용자 피드백', feedback)}
+
+위 피드백을 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분은 유지하세요.`
+  }
+  return content
+}
+
+// 채널별로 동시에 생성한다.
+// 한 채널이 실패해도 나머지 채널은 그대로 살린다 — 예전에는 전부 예시 결과로 떨어졌다.
+export async function generateChannels(env, { system, product, channels, previous, feedback }) {
+  const { settled, timing } = await runAll(
+    channels.map((channel) => () =>
+      callClaudeTool(env, {
+        system,
+        user: channelUserContent({ product, channel, channels, previous, feedback }),
+        tool: ONE_CHANNEL_TOOL,
+        maxTokens: 4096,
+        timeoutMs: 70000,
+      })
+    )
+  )
+
+  const raw = []
+  const failed = []
+  settled.forEach((r, i) => {
+    const got = r.status === 'fulfilled' ? r.value.input : null
+    if (!got) return failed.push(channels[i])
+    raw.push({ ...got, channel: channels[i] })
+  })
+
+  // 항목 단위 정규화는 기존 계약 검증을 그대로 쓴다.
+  // 쓸 수 있는 채널이 하나도 없으면 여기서 계약 위반으로 던져 폴백 경로로 넘어간다.
+  const results = normalizeChannelContents(raw, channels)
+
+  return { results, usage: sumUsage(settled), timing, failed }
 }
 
 export async function onRequestPost(context) {
@@ -185,24 +240,15 @@ export async function onRequestPost(context) {
     return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: rateNotice })
   }
 
-  const specs = channels.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
-  // 제품 정보·사용자 피드백은 데이터 블록으로 격리한다 (입력 속 지시문을 따르지 않도록)
-  let userContent = `[제품 정보]\n${userDataJson('제품 정보', product)}\n\n[요청 채널과 스펙]\n${specs}\n\n요청된 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`
-  if (previous) {
-    userContent += `\n\n[이전 생성 결과]\n${JSON.stringify(previous)}\n\n[사용자 피드백]\n${userDataBlock('사용자 피드백', feedback)}\n\n위 피드백을 모든 요청 채널에 일관되게 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분은 유지하세요.`
-  }
   try {
-    const { input: result, usage } = await callClaudeTool(env, {
+    const { results, usage, timing, failed } = await generateChannels(env, {
       system: SYSTEM + brandPrompt(brand),
-      user: userContent,
-      tool: TOOL,
-      maxTokens: 16000,
-      timeoutMs: 85000,
+      product,
+      channels,
+      previous,
+      feedback,
     })
-    ensureContract(result, { arrays: ['results'] })
-    // 채널 항목 단위로 모양을 맞추고, 요청하지 않은 채널이 섞여 오면 버린다
-    result.results = normalizeChannelContents(result.results, channels)
-    const checked = withAdCheck(result.results, brand)
+    const checked = withAdCheck(results, brand)
     const factCheck = checkClaims(
       checked.flatMap((r) => [r.title, r.body]),
       [product.name, product.category, product.features, product.target]
@@ -214,7 +260,18 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, ...result, results: checked, fact_check: factCheck, input_warning: injected, ...brandMeta(checked, brand) })
+    return json({
+      demo: false,
+      usage,
+      timing,
+      results: checked,
+      fact_check: factCheck,
+      input_warning: injected,
+      notice: failed.length
+        ? `${failed.join('·')} 채널은 생성이 지연되어 빠졌습니다. 나머지 채널은 정상 생성되었습니다.`
+        : null,
+      ...brandMeta(checked, brand),
+    })
   } catch (err) {
     const demo = demoResult(channels)
     logCall(context, { endpoint: 'content', mode: 'fallback', startedAt, reason: failureCode(err) })
