@@ -46,10 +46,18 @@ function demoResult(products) {
   return {
     demo: true,
     results: products.map((p) => {
-      const tokens = p.name.split(/\s+/).filter(Boolean)
+      // 재생성 요청이면 검출된 표현을 빼고 만든다 (예시 결과도 같은 원칙을 지킨다).
+      // 글자만 도려내면 "최고급 유산균" → "급 유산균"처럼 깨지므로 해당 단어를 통째로 뺀다.
+      const strip = (text) =>
+        String(text)
+          .split(/\s+/)
+          .filter((token) => token && !(p.violations || []).some((w) => token.includes(w)))
+          .join(' ')
+          .trim()
+      const tokens = strip(p.name).split(/\s+/).filter(Boolean)
       return {
         input_name: p.name,
-        title: `${p.name}${p.category ? ` ${p.category.split('>').pop().trim()}` : ''} 인기 상품`.slice(0, 50),
+        title: strip(`${p.name}${p.category ? ` ${p.category.split('>').pop().trim()}` : ''} 인기 상품`).slice(0, 50),
         alt_title: `${tokens.slice(0, 3).join(' ')} 추천 베스트`.slice(0, 50),
         keywords: [...new Set([...tokens, ...(p.category ? p.category.split(/[>\s]+/).filter(Boolean) : [])])].slice(0, 5),
         tags: [...new Set([...tokens, '인기상품', '추천'])].slice(0, 6),
@@ -68,6 +76,23 @@ function withAdCheck(results, products, brand) {
   }))
 }
 
+// 최초 생성과 재생성(위반 상품만 다시)에 같은 도구를 쓰되, 지시문만 달라진다
+function buildUserContent(products) {
+  const base = `[상품 목록 (${products.length}개)]
+${JSON.stringify(products, null, 2)}
+
+목록의 모든 상품에 대해 각각 결과를 기록하세요.`
+  const retry = products.filter((p) => p.violations.length > 0)
+  if (retry.length === 0) return base
+  return `${base}
+
+[재생성 지시 — 중요]
+이 요청은 이전 결과에서 규정 위반이 검출되어 다시 만드는 것입니다.
+- 각 상품의 previous는 이전 상품명, violations는 그때 검출된 표현입니다.
+- 검출된 표현과 그 동의어·변형을 절대 사용하지 말고, 완전히 다른 각도의 표현으로 새로 작성하세요.
+- previous를 그대로 되풀이하지 마세요. 검색 노출에 유리한 다른 키워드 조합을 찾으세요.`
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context
   const body = await readJsonBody(request)
@@ -79,6 +104,11 @@ export async function onRequestPost(context) {
       name: String(p.name).trim().slice(0, 100),
       category: String(p.category || '').slice(0, 100),
       features: String(p.features || '').slice(0, 300),
+      // 재생성 모드: 이전 상품명과 검출된 위반 표현 (없으면 최초 생성)
+      previous: String(p.previous || '').slice(0, 120),
+      violations: Array.isArray(p.violations)
+        ? p.violations.filter((v) => typeof v === 'string' && v.trim()).slice(0, 10).map((v) => v.trim().slice(0, 40))
+        : [],
     }))
   if (products.length === 0) return errorJson('상품을 1개 이상 입력해주세요. (한 줄에 하나)')
 
@@ -115,7 +145,7 @@ export async function onRequestPost(context) {
   try {
     const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM + brandPrompt(brand),
-      user: `[상품 목록 (${products.length}개)]\n${JSON.stringify(products, null, 2)}\n\n목록의 모든 상품에 대해 각각 결과를 기록하세요.`,
+      user: buildUserContent(products),
       tool: TOOL,
       maxTokens: 8192,
       timeoutMs: 70000,

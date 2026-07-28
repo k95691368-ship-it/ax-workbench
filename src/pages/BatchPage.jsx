@@ -4,6 +4,7 @@ import { postJson } from '../lib/api.js'
 import { parseProducts, rowsToProducts, productsToText, BATCH_MAX } from '../lib/batchParse.js'
 import { readTabularFile, TABULAR_ACCEPT } from '../lib/tabular.js'
 import { pushHistory } from '../lib/history.js'
+import { violatingTargets, buildFixPayload, mergeFixed, sumUsage } from '../lib/batchFix.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
@@ -35,6 +36,11 @@ export default function BatchPage() {
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState('')
   const [fileNote, setFileNote] = useState('')
+  // 요청에 실제로 보낸 상품 목록 — 입력창을 나중에 고쳐도 재생성 대상이 어긋나지 않게 보관한다
+  const [sent, setSent] = useState([])
+  const [fixing, setFixing] = useState(false)
+  const [fixedRows, setFixedRows] = useState([])
+  const [fixNote, setFixNote] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const resultRef = useRef(null)
   const fileRef = useRef(null)
@@ -110,6 +116,9 @@ export default function BatchPage() {
       const data = await postJson('/api/ax/batch-listing', { products: parsed.products })
       data.results = Array.isArray(data.results) ? data.results : []
       setResult(data)
+      setSent(parsed.products)
+      setFixedRows([])
+      setFixNote('')
       pushHistory({
         feature: 'batch',
         label: `${parsed.products.length}개 상품 (${parsed.products[0]?.name || ''} 외)`,
@@ -121,6 +130,48 @@ export default function BatchPage() {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 위반이 검출된 상품만 골라 다시 생성한다 — 통과한 상품은 그대로 두므로 비용도 그만큼만 든다
+  async function regenerateFlagged() {
+    if (!result || fixing) return
+    const targets = violatingTargets(result.results)
+    if (targets.length === 0) return
+    const before = targets.reduce((n, t) => n + t.violations.length, 0)
+    setFixing(true)
+    setError('')
+    try {
+      const data = await postJson('/api/ax/batch-listing', {
+        products: buildFixPayload(targets, sent),
+      })
+      const fixedResults = Array.isArray(data.results) ? data.results : []
+      const merged = mergeFixed(result.results, fixedResults, targets)
+      const after = violatingTargets(merged).reduce((n, t) => n + t.violations.length, 0)
+      const next = {
+        ...result,
+        results: merged,
+        usage: sumUsage(result.usage, data.usage),
+        demo: result.demo || data.demo,
+        notice: data.notice || result.notice,
+      }
+      setResult(next)
+      setFixedRows(targets.map((t) => t.index))
+      setFixNote(
+        after === 0
+          ? `재생성 완료 — 위반 ${before}건이 모두 해소됐습니다. (${targets.length}개 상품만 다시 생성)`
+          : `재생성 완료 — 위반 ${before}건 → ${after}건. 남은 건은 한 번 더 재생성하거나 사람이 확인하세요.`
+      )
+      pushHistory({
+        feature: 'batch',
+        label: `${targets.length}개 상품 재생성 (위반 ${before}건 → ${after}건)`,
+        input: text,
+        result: next,
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setFixing(false)
     }
   }
 
@@ -242,7 +293,23 @@ export default function BatchPage() {
                 <button type="button" className="btn-ghost" onClick={downloadCsv}>
                   등록용 CSV 다운로드
                 </button>
+                {flagged > 0 && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={fixing}
+                    onClick={regenerateFlagged}
+                  >
+                    {fixing ? '재생성 중... (20~50초)' : `위반 상품 ${flagged}개만 다시 생성`}
+                  </button>
+                )}
               </div>
+
+              {fixNote && (
+                <p className="form-success" role="status">
+                  {fixNote}
+                </p>
+              )}
 
               <div className="stat-row batch-summary">
                 <div className="stat-tile">
@@ -272,7 +339,10 @@ export default function BatchPage() {
                   <tbody>
                     {result.results.map((r, i) => (
                       <tr key={i} className={r.ad_check?.length ? 'batch-row-flagged' : ''}>
-                        <td className="batch-input-name">{r.input_name}</td>
+                        <td className="batch-input-name">
+                          {r.input_name}
+                          {fixedRows.includes(i) && <span className="row-refixed">재생성됨</span>}
+                        </td>
                         <td>
                           <div className="batch-title-cell">
                             <strong>{r.title}</strong>

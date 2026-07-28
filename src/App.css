@@ -2593,3 +2593,15 @@
   gap: 6px;
   flex-wrap: wrap;
 }
+
+.row-refixed {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #4338ca;
+  font-size: 11px;
+  font-weight: 800;
+  vertical-align: middle;
+}
