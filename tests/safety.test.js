@@ -18,6 +18,27 @@ describe('에스컬레이션 규칙 (AI 판단을 덮어쓰는 최종 게이트)
     expect(detectEscalation('환불 신청은 어떻게 하나요').escalate).toBe(false)
   })
 
+  it('부정 문맥은 올리지 않는다 (칭찬이 안전망을 채우면 담당자가 큐를 안 믿는다)', () => {
+    expect(detectEscalation('먹어봤는데 부작용 없었어요').escalate).toBe(false)
+    expect(detectEscalation('벌레 하나 없이 깨끗하게 포장되어 왔어요').escalate).toBe(false)
+    expect(detectEscalation('곰팡이 안 생기고 잘 보관됩니다').escalate).toBe(false)
+  })
+
+  it('완화된 단어를 따로 알려준다 (왜 안 올렸는지 추적 가능하게)', () => {
+    expect(detectEscalation('부작용 없었어요').softened).toContain('부작용')
+  })
+
+  it('부정이 붙어도 치명 표현은 그대로 올린다 (완화가 새 구멍이 되지 않게)', () => {
+    expect(detectEscalation('응급실 갈 정도는 아니었지만 놀랐어요').escalate).toBe(true)
+    expect(detectEscalation('소송까지는 아니고요').escalate).toBe(true)
+    expect(detectEscalation('식중독은 아닌 것 같은데 배가 아팠어요').escalate).toBe(true)
+  })
+
+  it('멀리 떨어진 부정은 다른 절의 이야기로 보고 무시한다', () => {
+    // "이물"과 "없" 사이에 절 경계가 있으므로 이물 신고는 살아 있어야 한다
+    expect(detectEscalation('이물이 나왔습니다. 재구매 의사 없어요').escalate).toBe(true)
+  })
+
   it('사유를 사람이 읽을 수 있는 문장으로 돌려준다', () => {
     const r = detectEscalation('알레르기 반응이 있었어요')
     expect(r.reason).toContain('건강 이상')

@@ -2570,6 +2570,20 @@
   line-height: 1.5;
 }
 
+/* 확약 표현 — 규정 위반은 아니지만 대외 약속이 되는 자리라 더 눈에 띄게 둔다 */
+.review-promise-check {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  cursor: help;
+}
+
 /* ===== 생성 이력 ===== */
 .hist-when {
   white-space: nowrap;
@@ -2641,6 +2655,36 @@
   border-radius: 6px;
   padding: 1px 6px;
   font-size: 12px;
+}
+
+.endpoint-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.endpoint-table th,
+.endpoint-table td {
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.endpoint-table th:first-child,
+.endpoint-table td:first-child {
+  text-align: left;
+}
+
+.endpoint-table th {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.endpoint-table .rate-bad {
+  color: #b91c1c;
+  font-weight: 800;
 }
 
 .rule-badge {

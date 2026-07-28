@@ -7,6 +7,8 @@
 // 이 규칙은 AI가 escalate=false로 답해도 무조건 담당자 확인으로 올린다.
 // 반대 방향(AI가 올린 것을 규칙이 내리는 것)은 하지 않는다 — 안전한 쪽으로만 기운다.
 
+import { isNegated } from './negation.js'
+
 export const ESCALATION_RULES = [
   {
     id: 'health',
@@ -41,20 +43,52 @@ export const ESCALATION_RULES = [
   },
 ]
 
+// 부정 문맥이어도 절대 내리지 않는 단어들.
+// "응급실 안 갔어요"처럼 부정이 붙어도 사건 자체가 이미 일어났음을 뜻하거나,
+// 놓쳤을 때의 손실이 오탐 비용보다 압도적으로 큰 표현들이다.
+export const CRITICAL_WORDS = new Set([
+  '응급실', '입원', '쓰러', '식중독', '중독', '사망',
+  '소송', '고소', '고발', '변호사', '소비자원', '식약처', '공정거래위원회',
+  '위자료', '치료비', '병원비',
+])
+
 // 리뷰 본문에서 강제 에스컬레이션 사유를 찾는다.
+//
+// 키워드가 들어 있다는 것만으로 올리면 "부작용 없었어요", "벌레 하나 없이 깨끗해요" 같은
+// 칭찬 리뷰까지 담당자 큐에 쌓인다. 안전망이 오탐으로 가득 차면 담당자가 큐를 신뢰하지 않게 되고,
+// 결국 진짜 위험 건을 놓친다 — 그래서 붙어 있는 부정만 좁게 인정해 걷어낸다.
+// 다만 CRITICAL_WORDS는 이 완화에서 제외해, 완화가 새 구멍이 되지 않게 한다.
 export function detectEscalation(text) {
   const source = String(text || '')
   const hits = []
+  const softened = []
+
   for (const rule of ESCALATION_RULES) {
-    const matched = rule.words.filter((w) => source.includes(w))
+    const matched = []
+    for (const word of rule.words) {
+      const positions = []
+      let at = source.indexOf(word)
+      while (at !== -1) {
+        positions.push(at)
+        at = source.indexOf(word, at + 1)
+      }
+      if (positions.length === 0) continue
+
+      const critical = CRITICAL_WORDS.has(word)
+      const live = critical || positions.some((p) => !isNegated(source, p, word.length))
+      if (live) matched.push(word)
+      else softened.push(word)
+    }
     if (matched.length > 0) hits.push({ id: rule.id, label: rule.label, reason: rule.reason, matched })
   }
-  if (hits.length === 0) return { escalate: false, hits: [], reason: null }
+
+  if (hits.length === 0) return { escalate: false, hits: [], reason: null, softened }
   return {
     escalate: true,
     hits,
     reason: `${hits.map((h) => h.label).join(' · ')} — ${hits[0].reason}`,
     matched: hits.flatMap((h) => h.matched),
+    softened,
   }
 }
 

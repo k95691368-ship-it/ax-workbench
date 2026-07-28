@@ -55,3 +55,39 @@ export function checkClaims(generated, source) {
 
   return [...found.values()]
 }
+
+// 고객 응대 답변이 회사를 대신해 "확약"하는 표현들.
+//
+// 상품 문구의 지어낸 수치보다 실무 리스크가 큰 자리다 — 리뷰 답변은 공개 게시글이라,
+// AI가 임의로 "전액 환불해 드리겠습니다"라고 쓰면 그 순간 대외 약속이 된다.
+// 보상 범위·처리 기한은 회사 정책이지 AI가 정할 수 있는 값이 아니다.
+const PROMISE_PATTERNS = [
+  { re: /전액\s*환불|100\s*%\s*환불|무조건\s*환불|즉시\s*환불/, label: '환불 확약', kind: '보상 범위' },
+  { re: /전액\s*보상|보상해\s*드리겠|배상해\s*드리겠|보상\s*처리해\s*드리겠/, label: '보상 확약', kind: '보상 범위' },
+  { re: /무상\s*(교환|재발송|재배송)|무료로\s*(교환|재발송|보내)/, label: '무상 처리 확약', kind: '보상 범위' },
+  { re: /\d+\s*(일|시간|영업일)\s*(내|이내|안에)/, label: '처리 기한 확약', kind: '처리 기한' },
+  { re: /반드시\s*(해결|처리|보상)|틀림없이|보장(해\s*드리|드리)/, label: '결과 보장', kind: '결과 보장' },
+  { re: /책임지고|전적으로\s*저희\s*(과실|잘못)|저희\s*잘못입니다/, label: '과실 인정', kind: '책임 인정' },
+]
+
+// replies: AI가 쓴 답변들. 반환값은 "확인 필요" 목록이며 위반이 아니다 — 판단은 사람이 한다.
+export function checkPromises(replies) {
+  const list = (Array.isArray(replies) ? replies : [replies]).filter(Boolean)
+  const found = new Map()
+
+  for (const reply of list) {
+    const text = String(reply)
+    for (const p of PROMISE_PATTERNS) {
+      const m = p.re.exec(text)
+      if (!m || found.has(p.label)) continue
+      found.set(p.label, {
+        type: 'promise',
+        claim: m[0].trim(),
+        label: p.label,
+        reason: `${p.kind}은(는) 회사 정책 사항입니다. 담당자 확인 없이 답변에 확약하면 그대로 대외 약속이 됩니다.`,
+      })
+    }
+  }
+
+  return [...found.values()]
+}

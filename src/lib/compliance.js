@@ -3,6 +3,8 @@
 // 거짓·과장, 최상급 표현 등 부당한 표시·광고 금지.
 // 이 목록은 데모용 요약이며, 실제 심의 기준 전체를 대체하지 않는다.
 
+import { inDisclaimerClause } from './negation.js'
+
 export const BANNED_RULES = [
   {
     id: 'disease',
@@ -113,9 +115,11 @@ export function scanText(text, brandBanned = []) {
       let at = norm.indexOf(needle)
       while (at !== -1) {
         const end = at + needle.length
-        if (!inAllowed(at, end)) {
-          const from = map[at]
-          const to = map[end - 1] + 1
+        const from = map[at]
+        const to = map[end - 1] + 1
+        // "치료 효과는 안내드릴 수 없습니다"처럼 **규정을 지키려고 쓴 거절 문장**은 위반이 아니다.
+        // 이걸 위반으로 세면 담당자가 오히려 규정을 어기는 방향으로 문장을 고치게 된다.
+        if (!inAllowed(at, end) && !inDisclaimerClause(text, from)) {
           findings.push({
             ruleId: rule.id,
             severity: rule.severity,

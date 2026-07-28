@@ -254,6 +254,16 @@ export default function ReviewsPage() {
                         점검 주의: {r.ad_check.map((f) => `${f.word}(${f.label})`).join(', ')}
                       </p>
                     )}
+                    {r.promise_check?.length > 0 && (
+                      <p
+                        className="review-promise-check"
+                        title={r.promise_check.map((p) => `${p.claim} — ${p.reason}`).join('\n')}
+                      >
+                        확약 표현 확인 필요:{' '}
+                        {r.promise_check.map((p) => `${p.claim}(${p.label})`).join(', ')} — 보상
+                        범위·처리 기한은 회사 정책이라 담당자 확인 후 내보내세요.
+                      </p>
+                    )}
                   </article>
                 ))}
               </div>

@@ -8,6 +8,7 @@ import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js'
 import { DATA_GUARD, userDataBlock, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { detectEscalation, SAFE_REPLY } from '../../../src/lib/escalation.js'
+import { checkPromises } from '../../../src/lib/factCheck.js'
 
 const MAX_REVIEWS = 8
 
@@ -172,6 +173,16 @@ function withAdCheck(results, brand) {
   return results.map((r) => ({ ...r, ad_check: checkTexts([r.reply], brand) }))
 }
 
+// 답변이 회사 정책을 임의로 확약했는지 점검한다.
+// 리뷰 답변은 공개 게시글이라, "전액 환불해 드리겠습니다" 한 줄이 그대로 대외 약속이 된다.
+// 규칙이 답변을 SAFE_REPLY로 교체한 건은 이미 보수적 문구라 점검 대상이 아니다.
+function withPromiseCheck(results) {
+  return results.map((r) => {
+    const promises = r.escalation_source === 'rule' ? [] : checkPromises([r.reply])
+    return promises.length ? { ...r, promise_check: promises } : r
+  })
+}
+
 // 답변별 룰북 준수 점검.
 // 에스컬레이션 건은 "확인 후 개별 연락드리겠습니다" 수준의 보수적 문구만 쓰도록 설계했으므로
 // 필수 문구(안내·홍보성 문구) 검증에서 의도적으로 제외한다.
@@ -191,7 +202,10 @@ function withBrandCheck(results, brand) {
 // 순서가 중요하다: 답변이 교체될 수 있으므로 점검은 항상 "최종 답변" 기준으로 돌아야 한다.
 function withChecks(results, reviews, brand) {
   const forced = applyEscalationRules(results, reviews)
-  const { results: checked, meta } = withBrandCheck(withAdCheck(forced, brand), brand)
+  const { results: checked, meta } = withBrandCheck(
+    withPromiseCheck(withAdCheck(forced, brand)),
+    brand
+  )
   return { results: checked, ...meta }
 }
 

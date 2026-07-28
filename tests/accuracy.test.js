@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { scanText, ALLOWED_PHRASES } from '../src/lib/compliance.js'
-import { checkClaims } from '../src/lib/factCheck.js'
+import { checkClaims, checkPromises } from '../src/lib/factCheck.js'
 import { normalizeDetail, normalizeChannelContents, normalizeListing } from '../functions/_lib/shape.js'
 import { checkDailyBudget, costOf } from '../functions/_lib/budget.js'
 
@@ -30,6 +30,19 @@ describe('금칙어 매칭 — 오검출 예외', () => {
     for (const phrase of ALLOWED_PHRASES) {
       expect(scanText(phrase), phrase).toEqual([])
     }
+  })
+
+  it('규정을 지키려고 쓴 거절 문장은 위반으로 잡지 않는다', () => {
+    // 실제 라이브에서 나온 문장 — 이걸 위반으로 세면 담당자가 규정을 어기는 방향으로 고치게 된다
+    expect(
+      scanText('제품의 질병 치료나 예방 효과에 대해서는 안내드릴 수 없는 점 양해 부탁드립니다')
+    ).toEqual([])
+    expect(scanText('치료 효과는 말씀드릴 수 없습니다')).toEqual([])
+  })
+
+  it('거절 절 밖의 위반은 그대로 잡는다 (완화가 구멍이 되지 않게)', () => {
+    const found = scanText('치료 효과가 뛰어납니다. 자세한 건 안내드릴 수 없는 점 양해 바랍니다')
+    expect(found.map((f) => f.word)).toContain('치료')
   })
 
   it('허용 문구 밖의 위반은 여전히 잡는다', () => {
@@ -68,6 +81,32 @@ describe('사실 근거 검증', () => {
 
   it('단위 없는 맨숫자는 무시한다 (문장 번호·순서 오탐 방지)', () => {
     expect(checkClaims(['1. 첫 번째 이유'], source)).toEqual([])
+  })
+})
+
+describe('고객 응대 확약 표현 검증', () => {
+  it('보상 범위를 임의로 확약하면 잡는다', () => {
+    expect(checkPromises(['불편을 드려 죄송합니다. 전액 환불해 드리겠습니다.'])).toHaveLength(1)
+    expect(checkPromises(['무상 교환 도와드리겠습니다'])[0].label).toBe('무상 처리 확약')
+  })
+
+  it('처리 기한 확약을 잡는다', () => {
+    expect(checkPromises(['3일 내 처리해 드리겠습니다'])[0].label).toBe('처리 기한 확약')
+  })
+
+  it('과실 인정·결과 보장을 잡는다', () => {
+    expect(checkPromises(['책임지고 해결하겠습니다'])[0].label).toBe('과실 인정')
+    expect(checkPromises(['반드시 해결해 드리겠습니다'])[0].label).toBe('결과 보장')
+  })
+
+  it('정상적인 안내 답변은 잡지 않는다', () => {
+    expect(checkPromises(['고객님, 문의 감사합니다. 확인 후 안내드리겠습니다.'])).toEqual([])
+    expect(checkPromises(['환불 절차는 고객센터에서 안내해 드립니다.'])).toEqual([])
+    expect(checkPromises(['맛있게 드셨다니 감사합니다.'])).toEqual([])
+  })
+
+  it('같은 유형이 여러 번 나와도 한 번만 보고한다', () => {
+    expect(checkPromises(['전액 환불해 드립니다', '전액 환불 가능합니다'])).toHaveLength(1)
   })
 })
 

@@ -1,8 +1,9 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, ensureContract, hasApiKey } from '../../_lib/claude.js'
+import { callClaudeTool, ensureContract, hasApiKey, failureCode } from '../../_lib/claude.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
+import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 
 const TOOL = {
   name: 'record_sales_report',
@@ -33,7 +34,7 @@ const SYSTEM = `당신은 온라인 유통사 영업지원팀의 데이터 분�
 규칙:
 1. 제공된 집계 수치만 근거로 사용하고, 수치를 지어내지 마세요.
 2. 인사이트는 "무엇이 → 왜 중요한가" 구조로, 액션은 담당자가 오늘 실행할 수 있는 수준으로 구체적으로 쓰세요.
-3. 금액은 천 단위 구분(예: 1,234,000원)으로 표기하세요.`
+3. 금액은 천 단위 구분(예: 1,234,000원)으로 표기하세요.${DATA_GUARD}`
 
 function demoResult(summary) {
   const total = summary?.totalAmount ? summary.totalAmount.toLocaleString('ko-KR') : '18,540,000'
@@ -103,10 +104,18 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, 'ax:sales:all', 80, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
+  // 상품명·채널명은 고객사가 올린 CSV에서 그대로 온다 — 지시문을 심어 둘 수 있는 자리다
+  const injected = injectionNotice(
+    detectInjection([
+      ...compact.byProduct.map((r) => r?.[0]),
+      ...compact.byChannel.map((r) => r?.[0]),
+    ])
+  )
+
   try {
     const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM,
-      user: `[판매 데이터 집계]\n${JSON.stringify(compact, null, 2)}`,
+      user: `[판매 데이터 집계]\n${userDataJson('판매 데이터 집계', compact)}`,
       tool: TOOL,
       maxTokens: 4096,
     })
@@ -115,9 +124,9 @@ export async function onRequestPost(context) {
       strings: ['headline', 'summary'],
     })
     logCall(context, { endpoint: 'sales-report', mode: 'live', startedAt, usage })
-    return json({ demo: false, usage, ...result })
+    return json({ demo: false, usage, input_warning: injected, ...result })
   } catch (err) {
-    logCall(context, { endpoint: 'sales-report', mode: 'fallback', startedAt })
+    logCall(context, { endpoint: 'sales-report', mode: 'fallback', startedAt, reason: failureCode(err) })
     return json({ ...demoResult(compact), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

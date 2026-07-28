@@ -5,6 +5,16 @@ import { Link } from 'react-router-dom'
 const INPUT_PRICE = 5 / 1_000_000
 const OUTPUT_PRICE = 25 / 1_000_000
 
+// 계측 테이블의 endpoint 값을 화면에서 읽히는 기능 이름으로 바꾼다
+const ENDPOINT_LABELS = {
+  'detail-page': '상세페이지 생성',
+  content: '채널 콘텐츠',
+  listing: '상품등록 최적화',
+  'batch-listing': '대량 등록',
+  reviews: '리뷰 자동 응대',
+  'sales-report': '매출 리포트',
+}
+
 const MAPPING = [
   {
     duty: 'A. 자동화 파이프라인 구축 — 매출분석, 상품등록/검색어 최적화, 판매통계',
@@ -193,6 +203,38 @@ export default function AboutPage() {
                 "폴백 N건"만 세면 무엇을 고쳐야 할지 알 수 없어, 실패할 때마다 사유 코드를 함께
                 남깁니다. 실제로 이 기록이 없던 시절 상세페이지 타임아웃 문제를 손으로 찾아야 했고,
                 그 경험이 이 항목을 만든 이유입니다.
+              </p>
+            </div>
+          )}
+          {stats.by_endpoint?.length > 0 && (
+            <div className="fail-reasons">
+              <p className="fail-reasons-title">기능별 안정성</p>
+              <table className="endpoint-table">
+                <thead>
+                  <tr>
+                    <th>기능</th>
+                    <th>요청</th>
+                    <th>라이브</th>
+                    <th>폴백률</th>
+                    <th>평균</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.by_endpoint.map((e) => (
+                    <tr key={e.endpoint}>
+                      <td>{ENDPOINT_LABELS[e.endpoint] || e.endpoint}</td>
+                      <td>{e.calls}</td>
+                      <td>{e.live_calls}</td>
+                      <td className={e.fallback_rate >= 20 ? 'rate-bad' : ''}>{e.fallback_rate}%</td>
+                      <td>{e.avg_ms != null ? `${(e.avg_ms / 1000).toFixed(1)}초` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="about-point">
+                사유별 건수만 보면 "무엇이 실패했나"는 알아도 "어디가 아픈가"는 모릅니다. 기능별
+                폴백률을 함께 보면 다음에 손볼 곳이 바로 정해집니다 — 상세페이지 타임아웃도 이
+                관점으로 찾아냈습니다.
               </p>
             </div>
           )}

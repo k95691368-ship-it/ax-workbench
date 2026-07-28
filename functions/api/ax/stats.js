@@ -39,6 +39,33 @@ export async function onRequestGet(context) {
       failureReasons = []
     }
 
+    // 사유별 건수만으로는 "어느 기능이" 아픈지 알 수 없다.
+    // 기능별 라이브/폴백 비율까지 봐야 다음에 무엇을 고칠지 정해진다.
+    let byEndpoint = []
+    try {
+      const r = await env.DB.prepare(
+        `SELECT endpoint,
+                COUNT(*) AS calls,
+                SUM(CASE WHEN mode = 'live' THEN 1 ELSE 0 END) AS live_calls,
+                SUM(CASE WHEN mode = 'fallback' THEN 1 ELSE 0 END) AS fallback_calls,
+                AVG(CASE WHEN mode = 'live' THEN latency_ms END) AS avg_ms
+         FROM ai_calls
+         WHERE created_at >= datetime('now', '-7 days')
+         GROUP BY endpoint
+         ORDER BY calls DESC`
+      ).all()
+      byEndpoint = (r.results || []).map((row) => ({
+        endpoint: row.endpoint,
+        calls: row.calls,
+        live_calls: row.live_calls || 0,
+        fallback_calls: row.fallback_calls || 0,
+        fallback_rate: row.calls ? Math.round(((row.fallback_calls || 0) / row.calls) * 1000) / 10 : 0,
+        avg_ms: row.avg_ms ? Math.round(row.avg_ms) : null,
+      }))
+    } catch {
+      byEndpoint = []
+    }
+
     return json({
       available: true,
       days: 7,
@@ -51,6 +78,7 @@ export async function onRequestGet(context) {
       fallback_calls: byMode.fallback?.calls || 0,
       unverified_calls: byMode.unverified?.calls || 0,
       failure_reasons: failureReasons,
+      by_endpoint: byEndpoint,
     })
   } catch {
     // 테이블 미생성 등 — 지표 없이도 사이트는 정상 동작해야 한다
