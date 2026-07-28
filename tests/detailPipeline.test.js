@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { generateDetail, SECTION_BLUEPRINT } from '../functions/_lib/detailPipeline.js'
+import { generateDetail, reviseDetail, SECTION_BLUEPRINT } from '../functions/_lib/detailPipeline.js'
 
 const ENV = { CLAUDE_API_KEY: 'test-key' }
 const N = SECTION_BLUEPRINT.length
@@ -126,5 +126,107 @@ describe('상세페이지 파이프라인 — 전 호출 동시 실행', () => {
     const sectionPrompt = prompts.find((p) => p.includes('지금 쓸 섹션'))
     expect(sectionPrompt).toContain('겹쳐 쓰지 마세요')
     expect(sectionPrompt).toContain(SECTION_BLUEPRINT[1].role)
+  })
+})
+
+const PREVIOUS = {
+  headline: '이전 헤드라인',
+  subheadline: '이전 보조',
+  sections: [
+    { title: '이전제목0', body: '이전본문0', bullets: ['x'], image_brief: '이전img0' },
+    { title: '이전제목1', body: '이전본문1', bullets: [], image_brief: '이전img1' },
+    { title: '이전제목2', body: '이전본문2', bullets: [], image_brief: '이전img2' },
+  ],
+  faq: [{ q: '이전Q', a: '이전A' }],
+  keywords: ['이전k'],
+  designer_notes: '이전메모',
+}
+
+const REVISED_FRAME = {
+  headline: '새 헤드라인',
+  subheadline: '새 보조',
+  faq: [{ q: '새Q', a: '새A' }],
+  keywords: ['새k'],
+  designer_notes: '새메모',
+}
+
+function mockRevise({ fail = [] } = {}) {
+  let idx = 0
+  return vi.fn(async (_url, init) => {
+    const payload = JSON.parse(init.body)
+    if (payload.tools[0].name === 'record_revised_frame') {
+      if (fail.includes('frame')) throw new Error('frame down')
+      return apiResponse(REVISED_FRAME)
+    }
+    const i = idx++
+    if (fail.includes(i)) throw new Error('section down')
+    return apiResponse({ title: `새제목${i}`, body: `새본문${i}`, bullets: [], image_brief: `새img${i}` })
+  })
+}
+
+const REVISE_CALL = {
+  system: 'sys',
+  productBlock: '<user_data>제품</user_data>',
+  previous: PREVIOUS,
+  feedback: '더 친근한 말투로',
+}
+
+describe('피드백 재생성 — 항목별 동시 재작성', () => {
+  it('이전 섹션 수만큼 나눠 고치고 프레임까지 반영한다', async () => {
+    vi.stubGlobal('fetch', mockRevise())
+    const { result, degraded } = await reviseDetail(ENV, REVISE_CALL)
+    expect(result.headline).toBe('새 헤드라인')
+    expect(result.sections.map((s) => s.body)).toEqual(['새본문0', '새본문1', '새본문2'])
+    expect(degraded).toBeNull()
+  })
+
+  it('모든 재작성을 동시에 띄운다', async () => {
+    let inFlight = 0
+    let peak = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const payload = JSON.parse(init.body)
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise((r) => setTimeout(r, 20))
+        inFlight -= 1
+        return apiResponse(
+          payload.tools[0].name === 'record_revised_frame'
+            ? REVISED_FRAME
+            : { title: 't', body: 'b', image_brief: 'i' }
+        )
+      })
+    )
+    await reviseDetail(ENV, REVISE_CALL)
+    expect(peak).toBe(PREVIOUS.sections.length + 1)
+  })
+
+  it('재작성에 실패한 섹션은 이전 원고를 그대로 둔다 (고치려다 잃지 않게)', async () => {
+    vi.stubGlobal('fetch', mockRevise({ fail: [1] }))
+    const { result, degraded } = await reviseDetail(ENV, REVISE_CALL)
+    expect(result.sections[1]).toEqual(PREVIOUS.sections[1])
+    expect(result.sections[0].body).toBe('새본문0')
+    expect(degraded).toContain('1개')
+  })
+
+  it('프레임 재작성이 실패해도 이전 헤드라인으로 페이지를 지킨다', async () => {
+    vi.stubGlobal('fetch', mockRevise({ fail: ['frame'] }))
+    const { result, degraded } = await reviseDetail(ENV, REVISE_CALL)
+    expect(result.headline).toBe('이전 헤드라인')
+    expect(result.sections[0].body).toBe('새본문0')
+    expect(degraded).toContain('1개')
+  })
+
+  it('전부 실패해도 이전 결과를 그대로 돌려준다 (최악의 경우에도 손실 없음)', async () => {
+    vi.stubGlobal('fetch', mockRevise({ fail: ['frame', 0, 1, 2] }))
+    const { result } = await reviseDetail(ENV, REVISE_CALL)
+    expect(result.headline).toBe('이전 헤드라인')
+    expect(result.sections).toEqual(PREVIOUS.sections)
+  })
+
+  it('이전 결과에 섹션이 없으면 계약 위반으로 처리한다', async () => {
+    vi.stubGlobal('fetch', mockRevise())
+    await expect(reviseDetail(ENV, { ...REVISE_CALL, previous: { sections: [] } })).rejects.toThrow(/섹션이 없어/)
   })
 })

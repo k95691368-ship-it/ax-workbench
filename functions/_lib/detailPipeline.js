@@ -114,6 +114,20 @@ ${blueprintOverview()}
 위 구성으로 본문이 채워진다는 전제로, 페이지 최상단 헤드라인과 FAQ·검색 키워드·디자이너 인계 메모를 작성하세요. 본문 섹션은 쓰지 마세요.`
 }
 
+const REVISE_FRAME_TOOL = {
+  ...FRAME_TOOL,
+  name: 'record_revised_frame',
+  description: '피드백을 반영해 상세페이지의 헤드라인·FAQ·검색 키워드·디자이너 메모를 다시 작성해 기록한다.',
+}
+
+const REVISE_SECTION_TOOL = {
+  ...SECTION_TOOL,
+  name: 'record_revised_section',
+  description: '피드백을 반영해 상세페이지 섹션 하나를 다시 작성해 기록한다.',
+}
+
+const REVISE_GUIDE = `피드백이 요구한 방향은 확실하게 반영하고, 피드백과 무관하게 잘된 부분(사실 정보·구조)은 그대로 두세요. 디자인 방향에 대한 피드백이면 이미지 연출 지시에도 반영하세요.`
+
 const MIN_SECTIONS = 2
 
 // 상세페이지를 한 번에 병렬로 생성한다.
@@ -209,6 +223,134 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
     timing: {
       total_ms: Date.now() - started,
       // 개별 호출 시간의 합 — 예전 구조였다면 걸렸을 시간이다. total과의 차이가 병렬로 번 시간.
+      serial_ms: elapsed.reduce((a, b) => a + b, 0),
+      slowest_ms: Math.max(0, ...elapsed),
+      calls: elapsed.length,
+    },
+  }
+}
+
+// 피드백 반영(재생성)도 같은 방식으로 동시에 돌린다.
+//
+// 예전에는 이전 결과 전체를 한 번의 호출로 다시 쓰게 했다. 본 생성보다 입력이 길어
+// 더 느렸고, 그 한 번이 실패하면 고치려던 페이지까지 통째로 잃었다.
+//
+// 재생성은 오히려 병렬에 더 잘 맞는다 — 각 섹션은 "자기 이전 원고 + 피드백"만 있으면
+// 고쳐 쓸 수 있기 때문이다. 그리고 실패했을 때 잃을 것도 없다: 이전 원고를 그대로 두면 된다.
+export async function reviseDetail(env, { system, productBlock, previous, feedback, timeoutMs = 60000 }) {
+  const started = Date.now()
+  const prevSections = Array.isArray(previous.sections) ? previous.sections : []
+  if (prevSections.length === 0) throw failure('contract', '이전 결과에 섹션이 없어 피드백을 반영할 수 없습니다.')
+
+  const elapsed = Array.from({ length: prevSections.length + 1 }, () => 0)
+  const track = (i, promise) => {
+    const s = Date.now()
+    return promise.finally(() => {
+      elapsed[i] = Date.now() - s
+    })
+  }
+
+  const outline = prevSections.map((s, i) => `${i + 1}. ${s.title}`).join('\n')
+
+  const frameJob = track(
+    0,
+    callClaudeTool(env, {
+      system,
+      user: `[제품 정보]
+${productBlock}
+
+[이전 결과 — 헤드라인과 부속 정보]
+${JSON.stringify({
+  headline: previous.headline,
+  subheadline: previous.subheadline,
+  faq: previous.faq,
+  keywords: previous.keywords,
+  designer_notes: previous.designer_notes,
+})}
+
+[본문 섹션 구성 — 다른 작업자가 동시에 고치고 있습니다]
+${outline}
+
+[사용자 피드백]
+${feedback}
+
+${REVISE_GUIDE} 본문 섹션은 쓰지 마세요.`,
+      tool: REVISE_FRAME_TOOL,
+      maxTokens: 1536,
+      timeoutMs,
+    })
+  )
+
+  const sectionJobs = prevSections.map((s, i) =>
+    track(
+      i + 1,
+      callClaudeTool(env, {
+        system,
+        user: `[제품 정보]
+${productBlock}
+
+[상세페이지 전체 구성 — 이 중 ${i + 1}번만 맡습니다]
+${outline}
+
+[지금 고칠 섹션의 이전 원고]
+${JSON.stringify(s)}
+
+[사용자 피드백]
+${feedback}
+
+${REVISE_GUIDE} 이 섹션만 다시 쓰고, 다른 섹션이 맡은 내용은 가져오지 마세요.`,
+        tool: REVISE_SECTION_TOOL,
+        maxTokens: 1024,
+        timeoutMs,
+      })
+    )
+  )
+
+  const [frameResult, ...sectionResults] = await Promise.allSettled([frameJob, ...sectionJobs])
+
+  let inputTokens = 0
+  let outputTokens = 0
+  const addUsage = (r) => {
+    if (r.status !== 'fulfilled' || !r.value.usage) return
+    inputTokens += r.value.usage.input_tokens || 0
+    outputTokens += r.value.usage.output_tokens || 0
+  }
+  addUsage(frameResult)
+
+  // 프레임 재작성이 실패하면 이전 헤드라인을 그대로 쓴다 — 고치려다 잃는 것보다 낫다.
+  const frameOk = frameResult.status === 'fulfilled' && typeof frameResult.value.input?.headline === 'string'
+  const frame = frameOk ? frameResult.value.input : previous
+  let kept = frameOk ? 0 : 1
+
+  const sections = sectionResults.map((r, i) => {
+    addUsage(r)
+    const got = r.status === 'fulfilled' ? r.value.input : null
+    if (!got || typeof got.body !== 'string' || !got.body.trim() || !String(got.title || '').trim()) {
+      // 재작성 실패 — 이전 원고를 유지한다. 예전 구조에서는 페이지 전체를 잃었다.
+      kept += 1
+      return prevSections[i]
+    }
+    return {
+      title: got.title.trim(),
+      body: got.body.trim(),
+      bullets: Array.isArray(got.bullets) ? got.bullets.filter((b) => typeof b === 'string' && b.trim()) : [],
+      image_brief: String(got.image_brief || '').trim() || prevSections[i].image_brief || '',
+    }
+  })
+
+  return {
+    result: {
+      headline: frame.headline,
+      subheadline: frame.subheadline,
+      sections,
+      faq: frame.faq,
+      keywords: frame.keywords,
+      designer_notes: frame.designer_notes,
+    },
+    usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+    degraded: kept ? `${kept}개 항목은 재작성이 지연되어 이전 내용을 그대로 두었습니다.` : null,
+    timing: {
+      total_ms: Date.now() - started,
       serial_ms: elapsed.reduce((a, b) => a + b, 0),
       slowest_ms: Math.max(0, ...elapsed),
       calls: elapsed.length,

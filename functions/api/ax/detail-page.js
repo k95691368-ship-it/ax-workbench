@@ -1,7 +1,7 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
-import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
@@ -9,7 +9,7 @@ import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js
 import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
 import { normalizeDetail } from '../../_lib/shape.js'
-import { generateDetail } from '../../_lib/detailPipeline.js'
+import { generateDetail, reviseDetail } from '../../_lib/detailPipeline.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
 
 function detailTexts(result) {
@@ -29,44 +29,6 @@ function adCheckDetail(result, brand) {
 function brandMeta(result, brand) {
   if (!brand) return { brand_applied: false }
   return { brand_applied: true, brand_missing: missingRequired(detailTexts(result), brand) }
-}
-
-const TOOL = {
-  name: 'record_detail_page',
-  description: '이커머스 상품 상세페이지의 섹션 구조와 카피를 작성해 기록한다.',
-  input_schema: {
-    type: 'object',
-    required: ['headline', 'subheadline', 'sections', 'faq', 'keywords', 'designer_notes'],
-    properties: {
-      headline: { type: 'string', description: '상세페이지 최상단 후킹 헤드라인 (한 줄)' },
-      subheadline: { type: 'string', description: '헤드라인을 보조하는 한 줄' },
-      sections: {
-        type: 'array',
-        description: '상세페이지 본문 섹션 4~6개. 문제 공감 → 해결(제품) → 특징 → 신뢰 요소 → 구매 안내 순서 권장',
-        items: {
-          type: 'object',
-          required: ['title', 'body', 'image_brief'],
-          properties: {
-            title: { type: 'string', description: '섹션 제목' },
-            body: { type: 'string', description: '섹션 본문 카피 (2~4문장)' },
-            bullets: { type: 'array', items: { type: 'string' }, description: '요점 불릿 (선택)' },
-            image_brief: { type: 'string', description: '디자이너에게 전달할 이 섹션의 이미지 연출 지시 (한 줄)' },
-          },
-        },
-      },
-      faq: {
-        type: 'array',
-        description: '자주 묻는 질문 2~3개',
-        items: {
-          type: 'object',
-          required: ['q', 'a'],
-          properties: { q: { type: 'string' }, a: { type: 'string' } },
-        },
-      },
-      keywords: { type: 'array', items: { type: 'string' }, description: '검색 노출용 핵심 키워드 5~8개' },
-      designer_notes: { type: 'string', description: '디자이너 인계 메모: 전체 톤앤매너, 컬러, 강조 포인트' },
-    },
-  },
 }
 
 const SYSTEM = `당신은 온라인 유통사의 이커머스 상세페이지 기획 전문가입니다. 제품 정보를 받아 구매 전환에 최적화된 상세페이지 섹션 구조와 카피를 작성합니다.
@@ -170,11 +132,6 @@ export async function onRequestPost(context) {
   // 프롬프트 주입 의심 표현 — 요청을 막지 않고 데이터 격리로 무력화한 뒤 사람에게 알린다
   const injected = injectionNotice(detectInjection([input.name, input.features, input.target, input.tone, feedback]))
 
-  let userContent = `[제품 정보]\n${userDataJson('제품 정보', input)}`
-  if (previous) {
-    userContent += `\n\n[이전 생성 결과]\n${JSON.stringify(previous)}\n\n[사용자 피드백]\n${userDataBlock('사용자 피드백', feedback)}\n\n위 피드백을 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분(사실 정보·구조)은 유지하고, 피드백이 요구한 방향은 확실하게 반영하세요. 디자인 방향 피드백이면 designer_notes와 image_brief에도 반영하세요.`
-  }
-
   const startedAt = Date.now()
 
   // 보안 검증 실패도 하드 차단하지 않는다 — 예시 결과로 강등하고 사유를 기록한다
@@ -215,30 +172,21 @@ export async function onRequestPost(context) {
     let degraded = null
     let timing = null
 
-    if (previous) {
-      const single = await callClaudeTool(env, {
-        system,
-        user: userContent,
-        tool: TOOL,
-        maxTokens: 4096,
-        timeoutMs: 75000,
-      })
-      result = single.input
-      usage = single.usage
-      ensureContract(result, {
-        arrays: ['sections', 'faq', 'keywords'],
-        strings: ['headline', 'subheadline', 'designer_notes'],
-      })
-    } else {
-      const built = await generateDetail(env, {
-        system,
-        productBlock: userDataJson('제품 정보', input),
-      })
-      result = built.result
-      usage = built.usage
-      degraded = built.degraded
-      timing = built.timing
-    }
+    const built = previous
+      ? await reviseDetail(env, {
+          system,
+          productBlock: userDataJson('제품 정보', input),
+          previous,
+          feedback: userDataBlock('사용자 피드백', feedback),
+        })
+      : await generateDetail(env, {
+          system,
+          productBlock: userDataJson('제품 정보', input),
+        })
+    result = built.result
+    usage = built.usage
+    degraded = built.degraded
+    timing = built.timing
 
     // 중첩 항목까지 모양을 맞춘다 — 최상위 키만 보면 sections[].body 누락을 놓친다
     const shaped = normalizeDetail(result)
