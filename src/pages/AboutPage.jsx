@@ -15,6 +15,19 @@ const ENDPOINT_LABELS = {
   'sales-report': '매출 리포트',
 }
 
+// 사유 코드를 비개발자도 읽을 수 있게 옮긴다.
+// rate_limit·max_tokens처럼 "고장"이 아닌 것도 섞여 있어, 무엇이 문제이고 무엇이 정책인지 구분한다.
+const REASON_LABELS = {
+  timeout: 'AI 응답 지연 (고쳐야 할 문제)',
+  rate_limit: '사용량 한도 (의도된 비용 보호)',
+  contract: 'AI 응답 형식 불완전 (고쳐야 할 문제)',
+  max_tokens: '응답 길이 초과 (고쳐야 할 문제)',
+  section_failed: '섹션 생성 실패 (고쳐야 할 문제)',
+  network: '네트워크 오류',
+  rate_limited: 'AI 서비스 혼잡',
+  no_tool_use: 'AI 응답 파싱 실패 (고쳐야 할 문제)',
+}
+
 const MAPPING = [
   {
     duty: 'A. 자동화 파이프라인 구축 — 매출분석, 상품등록/검색어 최적화, 판매통계',
@@ -191,11 +204,14 @@ export default function AboutPage() {
           </div>
           {stats.failure_reasons?.length > 0 && (
             <div className="fail-reasons">
-              <p className="fail-reasons-title">실패 사유 기록</p>
+              {/* 여기 쌓이는 사유에는 진짜 실패(timeout·contract)만 있는 게 아니라
+                  정책에 따른 강등(rate_limit)도 섞인다. "실패"라고 부르면 지표가 과장된다. */}
+              <p className="fail-reasons-title">라이브 생성 대신 예시가 나간 사유</p>
               <ul>
                 {stats.failure_reasons.map((f) => (
                   <li key={f.reason}>
                     <code>{f.reason}</code> {f.calls}건
+                    {REASON_LABELS[f.reason] ? ` — ${REASON_LABELS[f.reason]}` : ''}
                   </li>
                 ))}
               </ul>
