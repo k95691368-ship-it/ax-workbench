@@ -240,3 +240,38 @@ describe('재생성 폴백의 완결성', () => {
     expect(result.designer_notes).toBe(PREVIOUS.designer_notes)
   })
 })
+
+describe('필수 표기 문구 배치 — 페이지에 한 번만', () => {
+  it('마지막 섹션 호출에만 "반드시 포함" 버전을 쓴다', async () => {
+    const systems = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const payload = JSON.parse(init.body)
+        systems.push(payload.system)
+        return apiResponse(payload.tools[0].name === 'record_detail_frame' ? FRAME : section(0))
+      })
+    )
+    await generateDetail(ENV, { ...CALL, system: '공통', systemWithRequired: '필수포함' })
+    expect(systems.filter((s) => s === '필수포함')).toHaveLength(1)
+    expect(systems.filter((s) => s === '공통')).toHaveLength(N)
+  })
+
+  it('재생성도 마지막 섹션에만 맡긴다', async () => {
+    const systems = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const payload = JSON.parse(init.body)
+        systems.push(payload.system)
+        return apiResponse(
+          payload.tools[0].name === 'record_revised_frame'
+            ? REVISED_FRAME
+            : { title: 't', body: 'b', image_brief: 'i' }
+        )
+      })
+    )
+    await reviseDetail(ENV, { ...REVISE_CALL, system: '공통', systemWithRequired: '필수포함' })
+    expect(systems.filter((s) => s === '필수포함')).toHaveLength(1)
+  })
+})

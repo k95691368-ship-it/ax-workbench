@@ -141,7 +141,12 @@ const MIN_SECTIONS = 2
 
 // 상세페이지를 한 번에 병렬로 생성한다.
 // 반환: { result, usage, degraded, timing }
-export async function generateDetail(env, { system, productBlock, timeoutMs = 60000 }) {
+// system: 공통 시스템 프롬프트 (필수 표기 문구는 넣지 말라고 지시된 버전)
+// systemWithRequired: 필수 표기 문구를 넣어야 하는 호출에만 쓰는 버전.
+//   한 페이지를 여러 호출로 나눠 만들기 때문에, 필수 문구를 모든 호출에 요구하면
+//   같은 문구가 페이지에 여러 번 박힌다. 마지막 섹션(구매 안내)에만 맡긴다 —
+//   법정 표기 문구가 놓이기에도 자연스러운 자리다.
+export async function generateDetail(env, { system, systemWithRequired = system, productBlock, timeoutMs = 60000 }) {
   // 프레임(헤드라인·FAQ·키워드·메모)과 섹션 5개를 t=0에 함께 띄운다.
   // 어느 것도 다른 것의 결과를 기다리지 않는다 — 그게 이 구조의 핵심이다.
   const { settled, timing } = await runAll([
@@ -155,7 +160,7 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
       }),
     ...SECTION_BLUEPRINT.map((_, i) => () =>
       callClaudeTool(env, {
-        system,
+        system: i === SECTION_BLUEPRINT.length - 1 ? systemWithRequired : system,
         user: sectionUserContent(productBlock, i),
         tool: SECTION_TOOL,
         maxTokens: SECTION_MAX_TOKENS,
@@ -220,7 +225,7 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
 //
 // 재생성은 오히려 병렬에 더 잘 맞는다 — 각 섹션은 "자기 이전 원고 + 피드백"만 있으면
 // 고쳐 쓸 수 있기 때문이다. 그리고 실패했을 때 잃을 것도 없다: 이전 원고를 그대로 두면 된다.
-export async function reviseDetail(env, { system, productBlock, previous, feedback, timeoutMs = 60000 }) {
+export async function reviseDetail(env, { system, systemWithRequired = system, productBlock, previous, feedback, timeoutMs = 60000 }) {
   const prevSections = Array.isArray(previous.sections) ? previous.sections : []
   if (prevSections.length === 0) throw failure('contract', '이전 결과에 섹션이 없어 피드백을 반영할 수 없습니다.')
 
@@ -255,7 +260,7 @@ ${REVISE_GUIDE} 본문 섹션은 쓰지 마세요.`,
       }),
     ...prevSections.map((s, i) => () =>
       callClaudeTool(env, {
-        system,
+        system: i === prevSections.length - 1 ? systemWithRequired : system,
         user: `[제품 정보]
 ${productBlock}
 

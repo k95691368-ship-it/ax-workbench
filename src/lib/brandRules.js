@@ -65,7 +65,9 @@ export function isBrandActive(brand) {
 
 // 룰북을 시스템 프롬프트에 덧붙일 지시문으로 변환한다.
 // 법정 표시광고 규칙이 항상 우선한다는 점을 명시해, 브랜드 규정이 규제를 덮어쓰지 못하게 한다.
-export function brandPrompt(brand) {
+// required=false로 부르면 "필수 표기 문구를 여기서는 넣지 말라"고 지시한다.
+// 한 결과물을 여러 호출로 나눠 만들 때, 그중 한 곳만 required=true여야 한다.
+export function brandPrompt(brand, { required = true } = {}) {
   if (!isBrandActive(brand)) return ''
   const b = normalizeBrand(brand)
   const lines = []
@@ -76,10 +78,17 @@ export function brandPrompt(brand) {
     lines.push(
       `- 다음 표현은 회사 규정상 사용 금지입니다: ${b.banned.join(', ')}. 비슷한 말로 우회하지 말고 다른 방식으로 표현하세요.`
     )
-  if (b.required.length)
+  // 필수 표기 문구는 "결과물 하나에 한 번"이다.
+  // 상세페이지처럼 한 결과물을 여러 호출로 나눠 만들 때 모든 호출에 "반드시 포함"이라고 하면
+  // 같은 문구가 페이지에 여러 번 박힌다 — 실제로 라이브에서 4번 반복됐다.
+  if (b.required.length) {
+    const quoted = b.required.map((r) => `"${r}"`).join(', ')
     lines.push(
-      `- 다음 문구는 결과물에 표기 그대로 반드시 포함하세요: ${b.required.map((r) => `"${r}"`).join(', ')}`
+      required
+        ? `- 다음 문구는 결과물에 표기 그대로 반드시 포함하세요: ${quoted}`
+        : `- 다음 표기 문구는 결과물의 다른 부분에서 한 번만 넣습니다. 여기서는 쓰지 마세요: ${quoted}`
     )
+  }
   if (b.notes) lines.push(`- 추가 지침: ${b.notes}`)
   return `\n\n[브랜드 룰북 — 회사가 정한 규정]\n${lines.join('\n')}\n(단, 위 표시광고 안전 규칙과 충돌하는 경우에는 언제나 표시광고 안전 규칙이 우선합니다.)`
 }

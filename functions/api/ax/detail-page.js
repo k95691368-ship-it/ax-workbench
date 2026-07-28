@@ -173,7 +173,9 @@ export async function onRequestPost(context) {
     return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: rateNotice })
   }
 
-  const system = SYSTEM + brandPrompt(brand)
+  // 필수 표기 문구는 마지막 섹션에서 한 번만 넣는다 (호출마다 요구하면 페이지에 반복된다)
+  const system = SYSTEM + brandPrompt(brand, { required: false })
+  const systemWithRequired = SYSTEM + brandPrompt(brand)
 
   try {
     // 피드백 반영은 이전 결과 전체를 놓고 고치는 작업이라 한 번에 봐야 한다 — 기존 단일 호출을 쓴다.
@@ -186,12 +188,14 @@ export async function onRequestPost(context) {
     const built = previous
       ? await reviseDetail(env, {
           system,
+          systemWithRequired,
           productBlock: userDataJson('제품 정보', input),
           previous,
           feedback: userDataBlock('사용자 피드백', feedback),
         })
       : await generateDetail(env, {
           system,
+          systemWithRequired,
           productBlock: userDataJson('제품 정보', input),
         })
     result = built.result

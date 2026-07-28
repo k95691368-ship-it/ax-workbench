@@ -91,3 +91,24 @@ describe('브랜드 금지어가 표시광고 점검에 함께 걸린다', () =>
     expect(checkTexts(['초특가 이벤트']).map((f) => f.word)).toEqual([])
   })
 })
+
+describe('필수 표기 문구는 결과물에 한 번만', () => {
+  const brand = { name: '다솜', required: ['본 제품은 식품이며 의약품이 아닙니다'] }
+
+  it('기본은 "반드시 포함"을 지시한다', () => {
+    expect(brandPrompt(brand)).toContain('반드시 포함')
+  })
+
+  it('required:false면 여기서는 쓰지 말라고 지시한다', () => {
+    const p = brandPrompt(brand, { required: false })
+    expect(p).toContain('여기서는 쓰지 마세요')
+    expect(p).not.toContain('반드시 포함')
+    // 문구 자체는 알려줘야 한다 — 무엇을 피해야 하는지 알아야 하므로
+    expect(p).toContain('본 제품은 식품이며 의약품이 아닙니다')
+  })
+
+  it('필수 문구가 없으면 두 버전이 같다', () => {
+    const only = { name: '다솜', tone: '담백하게' }
+    expect(brandPrompt(only, { required: false })).toBe(brandPrompt(only))
+  })
+})
