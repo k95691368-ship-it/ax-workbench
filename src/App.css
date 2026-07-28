@@ -2605,3 +2605,11 @@
   font-weight: 800;
   vertical-align: middle;
 }
+
+.sev-input {
+  display: inline-block;
+  margin-left: 6px;
+  background: #fef3c7;
+  color: var(--amber-600);
+  cursor: help;
+}

@@ -186,7 +186,7 @@ export default function BatchPage() {
   }
 
   function downloadCsv() {
-    const header = ['원래 상품명', '최적화 상품명', '대안 상품명', '검색 키워드', '등록 태그', '표시광고 점검']
+    const header = ['원래 상품명', '최적화 상품명', '대안 상품명', '검색 키워드', '등록 태그', '생성 문구 점검', '입력 원문 점검']
     const rows = result.results.map((r) => [
       r.input_name,
       r.title,
@@ -194,6 +194,9 @@ export default function BatchPage() {
       (r.keywords || []).join(' '),
       (r.tags || []).join(' '),
       r.ad_check?.length ? `주의 ${r.ad_check.length}건: ${r.ad_check.map((f) => f.word).join(', ')}` : '통과',
+      r.input_check?.length
+        ? `원문 수정 필요 ${r.input_check.length}건: ${r.input_check.map((f) => f.word).join(', ')}`
+        : '통과',
     ])
     const csv = '﻿' + [header, ...rows].map((row) => row.map(csvEsc).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
@@ -205,7 +208,9 @@ export default function BatchPage() {
     URL.revokeObjectURL(url)
   }
 
+  // 재생성으로 해결되는 위반(생성물)과, 사람이 원문을 고쳐야 하는 위반(입력)을 구분한다
   const flagged = result ? result.results.filter((r) => r.ad_check?.length).length : 0
+  const inputFlagged = result ? result.results.filter((r) => r.input_check?.length).length : 0
 
   return (
     <div className="tool-page">
@@ -311,6 +316,13 @@ export default function BatchPage() {
                 </p>
               )}
 
+              {inputFlagged > 0 && (
+                <p className="result-notice">
+                  입력한 상품 특징에 점검 대상 표현이 있는 상품이 {inputFlagged}개 있습니다. 이 건은 다시
+                  생성해도 사라지지 않으니, 원문(특징 설명)을 직접 고쳐주세요.
+                </p>
+              )}
+
               <div className="stat-row batch-summary">
                 <div className="stat-tile">
                   <span className="stat-label">처리 상품</span>
@@ -321,8 +333,16 @@ export default function BatchPage() {
                   <span className="stat-value">{result.results.length - flagged}개</span>
                 </div>
                 <div className="stat-tile">
-                  <span className="stat-label">사람 확인 필요</span>
-                  <span className="stat-value">{flagged}개{flagged > 0 && <em className="stat-note"> 금칙어 검출</em>}</span>
+                  <span className="stat-label">재생성으로 해결</span>
+                  <span className="stat-value">
+                    {flagged}개{flagged > 0 && <em className="stat-note"> 생성 문구 위반</em>}
+                  </span>
+                </div>
+                <div className="stat-tile">
+                  <span className="stat-label">원문 수정 필요</span>
+                  <span className="stat-value">
+                    {inputFlagged}개{inputFlagged > 0 && <em className="stat-note"> 입력한 특징에 포함</em>}
+                  </span>
                 </div>
               </div>
 

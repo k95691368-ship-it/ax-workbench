@@ -123,4 +123,15 @@ describe('서버 재생성 모드', () => {
     const data = await call({ products: [{ name: '두유 24팩', category: '음료' }] })
     expect(data.results[0].title).toContain('두유')
   })
+
+  it('입력 원문의 위반은 생성물 위반과 분리해 돌려준다 (재생성으로 해결되지 않는 건)', async () => {
+    const data = await call({
+      products: [{ name: '곱창돌김 16봉', category: '식품', features: '변비 치료에 좋은 김' }],
+    })
+    const row = data.results[0]
+    expect(row.input_check.map((f) => f.word)).toContain('변비 치료')
+    // 생성 문구 자체에는 위반이 없으므로 재생성 대상이 아니다
+    expect(row.ad_check).toEqual([])
+    expect(violatingTargets(data.results)).toEqual([])
+  })
 })

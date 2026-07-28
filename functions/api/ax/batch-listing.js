@@ -66,13 +66,15 @@ function demoResult(products) {
   }
 }
 
+// 점검 결과를 두 갈래로 나눈다.
+// - ad_check: AI가 만든 문구의 위반 → 다시 생성하면 해결된다
+// - input_check: 입력한 상품 특징에 이미 들어 있던 표현 → 재생성으로는 해결되지 않으므로
+//   사람이 원문을 고쳐야 한다. 둘을 섞으면 "다시 생성해도 위반이 안 없어지는" 함정이 생긴다.
 function withAdCheck(results, products, brand) {
   return results.map((r, i) => ({
     ...r,
-    ad_check: checkTexts(
-      [r.title, r.alt_title, ...(r.keywords || []), ...(r.tags || []), products[i]?.features],
-      brand
-    ),
+    ad_check: checkTexts([r.title, r.alt_title, ...(r.keywords || []), ...(r.tags || [])], brand),
+    input_check: checkTexts([products[i]?.features], brand),
   }))
 }
 
