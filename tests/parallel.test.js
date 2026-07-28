@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { runAll, sumUsage } from '../functions/_lib/parallel.js'
-import { generateChannels } from '../functions/api/ax/content.js'
+import { generateChannels, chunkChannels, CHANNEL_CHUNK } from '../functions/api/ax/content.js'
 
 describe('공용 병렬 실행기', () => {
   it('모든 작업을 동시에 띄운다', async () => {
@@ -45,81 +45,115 @@ function apiResponse(input, usage = { input_tokens: 100, output_tokens: 50 }) {
   return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }
 }
 
-const CHANNELS = ['instagram', 'blog', 'youtube']
+const CHANNELS = ['instagram', 'blog', 'youtube', 'cardnews', 'threads', 'tiktok']
 const CALL = { system: 's', product: { name: '김' }, channels: CHANNELS }
 
-// 어떤 채널의 호출인지는 프롬프트에 적힌 "지금 만들 채널"로 가른다
-function channelOf(init) {
+// 이 호출이 어떤 채널들을 맡았는지는 프롬프트에 적힌 스펙으로 가른다
+function channelsOf(init) {
   const content = JSON.parse(init.body).messages[0].content
-  return CHANNELS.find((c) => content.includes(`[지금 만들 채널]\n- ${c}:`))
+  const spec = content.split('[지금 만들 채널과 스펙]')[1].split('[다른 채널')[0]
+  return CHANNELS.filter((c) => spec.includes(`- ${c}:`))
 }
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe('채널 콘텐츠 — 채널별 동시 생성', () => {
-  it('채널 수만큼 호출을 동시에 띄우고 채널을 정확히 붙여 돌려준다', async () => {
+describe('채널 콘텐츠 — 묶음 단위 동시 생성', () => {
+  it('채널을 묶음 크기로 나눈다', () => {
+    expect(chunkChannels(CHANNELS).map((g) => g.length)).toEqual([CHANNEL_CHUNK, CHANNEL_CHUNK])
+    expect(chunkChannels(['instagram'])).toEqual([['instagram']])
+  })
+
+  it('묶음만큼 호출을 동시에 띄우고 모든 채널을 돌려준다', async () => {
     let peak = 0
     let inFlight = 0
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, init) => {
-        const ch = channelOf(init)
+        const chs = channelsOf(init)
         inFlight += 1
         peak = Math.max(peak, inFlight)
         await new Promise((r) => setTimeout(r, 15))
         inFlight -= 1
-        return apiResponse({ title: `${ch} 제목`, body: `${ch} 본문`, hashtags: ['t'] })
+        return apiResponse({ results: chs.map((c) => ({ channel: c, title: `${c} 제목`, body: `${c} 본문` })) })
       })
     )
     const { results, timing, failed } = await generateChannels(ENV, CALL)
-    expect(peak).toBe(3)
-    expect(timing.calls).toBe(3)
+    expect(timing.calls).toBe(2)
+    expect(peak).toBe(2)
     expect(failed).toEqual([])
-    expect(results.map((r) => r.channel)).toEqual(CHANNELS)
-    expect(results.find((r) => r.channel === 'blog').title).toBe('blog 제목')
+    expect(results.map((r) => r.channel).sort()).toEqual([...CHANNELS].sort())
   })
 
-  it('한 채널이 실패해도 나머지 채널은 살린다', async () => {
+  it('한 묶음이 실패해도 나머지 채널은 살린다', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, init) => {
-        const ch = channelOf(init)
-        if (ch === 'blog') throw new Error('down')
-        return apiResponse({ title: `${ch} 제목`, body: `${ch} 본문` })
+        const chs = channelsOf(init)
+        if (chs.includes('cardnews')) throw new Error('down')
+        return apiResponse({ results: chs.map((c) => ({ channel: c, title: `${c} 제목`, body: `${c} 본문` })) })
       })
     )
     const { results, failed } = await generateChannels(ENV, CALL)
-    expect(failed).toEqual(['blog'])
-    expect(results.map((r) => r.channel)).toEqual(['instagram', 'youtube'])
+    expect(failed.sort()).toEqual(['cardnews', 'threads', 'tiktok'])
+    expect(results.map((r) => r.channel)).toEqual(['instagram', 'blog', 'youtube'])
   })
 
-  it('모든 채널이 실패하면 예외를 던져 기존 폴백 경로로 넘긴다', async () => {
+  it('묶음이 일부 채널만 돌려주면 빠진 채널을 알려준다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const chs = channelsOf(init).slice(0, 2)
+        return apiResponse({ results: chs.map((c) => ({ channel: c, title: `${c} 제목`, body: `${c} 본문` })) })
+      })
+    )
+    const { failed } = await generateChannels(ENV, CALL)
+    expect(failed).toHaveLength(2)
+  })
+
+  it('요청하지 않은 채널이 섞여 오면 버린다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const chs = channelsOf(init)
+        return apiResponse({
+          results: [
+            ...chs.map((c) => ({ channel: c, title: `${c} 제목`, body: `${c} 본문` })),
+            { channel: 'facebook', title: '안 시켰는데', body: '본문' },
+          ],
+        })
+      })
+    )
+    const { results } = await generateChannels(ENV, CALL)
+    expect(results.some((r) => r.channel === 'facebook')).toBe(false)
+  })
+
+  it('모든 묶음이 실패하면 예외를 던져 기존 폴백 경로로 넘긴다', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('down') }))
     await expect(generateChannels(ENV, CALL)).rejects.toThrow(/사용할 수 있는 채널 콘텐츠가 없/)
   })
 
-  it('재생성에서는 그 채널의 이전 원고만 준다 (다른 채널 톤이 섞이지 않게)', async () => {
+  it('재생성에서는 그 묶음의 이전 원고만 준다 (다른 채널 톤이 섞이지 않게)', async () => {
     const prompts = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, init) => {
         prompts.push(JSON.parse(init.body).messages[0].content)
-        const ch = channelOf(init)
-        return apiResponse({ title: `${ch} 제목`, body: `${ch} 본문` })
+        const chs = channelsOf(init)
+        return apiResponse({ results: chs.map((c) => ({ channel: c, title: `${c} 제목`, body: `${c} 본문` })) })
       })
     )
     await generateChannels(ENV, {
       ...CALL,
       previous: {
         results: [
-          { channel: 'instagram', title: '인스타 이전', body: '인스타 본문' },
-          { channel: 'blog', title: '블로그 이전', body: '블로그 본문' },
+          { channel: 'instagram', title: '인스타 이전', body: '본문' },
+          { channel: 'tiktok', title: '틱톡 이전', body: '본문' },
         ],
       },
       feedback: '더 친근하게',
     })
-    const blogPrompt = prompts.find((p) => p.includes('- blog:'))
-    expect(blogPrompt).toContain('블로그 이전')
-    expect(blogPrompt).not.toContain('인스타 이전')
+    const first = prompts.find((p) => p.includes('- instagram:'))
+    expect(first).toContain('인스타 이전')
+    expect(first).not.toContain('틱톡 이전')
   })
 })

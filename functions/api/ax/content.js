@@ -83,46 +83,69 @@ function demoResult(channels) {
   }
 }
 
-// 채널 하나만 만드는 도구.
-// 예전에는 요청한 모든 채널을 한 응답에 담게 했다. 블로그 800자·카드뉴스 6장·영상
-// 스크립트가 한꺼번에 쌓이니 채널을 늘릴수록 느려지고, 그 한 번이 실패하면 전부 잃었다.
-const ONE_CHANNEL_TOOL = {
-  name: 'record_channel_content',
-  description: '지정된 채널 하나의 콘텐츠를 그 채널 문법에 맞게 작성해 기록한다.',
+const CHANNELS_TOOL = {
+  name: 'record_channel_contents',
+  description: '지정된 채널들의 콘텐츠를 각 채널 문법에 맞게 작성해 기록한다.',
   input_schema: {
     type: 'object',
-    required: ['title', 'body'],
+    required: ['results'],
     properties: {
-      title: { type: 'string', description: '콘텐츠 제목 또는 첫 줄 후킹' },
-      body: {
-        type: 'string',
-        description: '본문 전체. 카드뉴스는 "1장: ..." 형식, 영상은 "0-3초: ..." 형식으로 장면 구분',
+      results: {
+        type: 'array',
+        description: '요청된 각 채널별 콘텐츠',
+        items: {
+          type: 'object',
+          required: ['channel', 'title', 'body'],
+          properties: {
+            channel: { type: 'string', description: '채널 id' },
+            title: { type: 'string', description: '콘텐츠 제목 또는 첫 줄 후킹' },
+            body: {
+              type: 'string',
+              description: '본문 전체. 카드뉴스는 "1장: ..." 형식, 영상은 "0-3초: ..." 형식으로 장면 구분',
+            },
+            hashtags: { type: 'array', items: { type: 'string' }, description: '해시태그 (# 제외)' },
+          },
+        },
       },
-      hashtags: { type: 'array', items: { type: 'string' }, description: '해시태그 (# 제외)' },
     },
   },
 }
 
-function channelUserContent({ product, channel, channels, previous, feedback }) {
-  const others = channels.filter((c) => c !== channel)
+// 한 호출이 맡는 채널 수.
+//
+// 처음에는 채널마다 호출을 하나씩 뒀는데, 라이브에서 재보니 호출 하나가 채널 수와
+// 거의 무관하게 ~15초였다. 즉 이 작업의 시간은 생성량보다 **호출당 고정 비용**이
+// 지배한다(Opus 5의 사고 토큰). 그래서 무조건 잘게 쪼개면 오히려 손해다.
+// 묶음 크기는 실측으로 정한다 — 아래 값은 3채널·6채널을 재서 고른 값이다.
+export const CHANNEL_CHUNK = 3
+
+export function chunkChannels(channels, size = CHANNEL_CHUNK) {
+  const out = []
+  for (let i = 0; i < channels.length; i += size) out.push(channels.slice(i, i + size))
+  return out
+}
+
+function groupUserContent({ product, group, channels, previous, feedback }) {
+  const specs = group.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
+  const others = channels.filter((c) => !group.includes(c))
   let content = `[제품 정보]
 ${userDataJson('제품 정보', product)}
 
-[지금 만들 채널]
-- ${channel}: ${CHANNEL_SPECS[channel]}
+[지금 만들 채널과 스펙]
+${specs}
 
-[다른 채널도 동시에 만들어지고 있습니다 — 이 채널의 문법에만 집중하세요]
+[다른 채널은 동시에 따로 만들어지고 있습니다 — 위 채널만 만드세요]
 ${others.length ? others.join(', ') : '(없음)'}
 
-이 채널의 콘텐츠 하나만 만들어 기록하세요.`
+위 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`
 
   if (previous) {
-    // 이 채널의 이전 결과만 준다 — 다른 채널 원고까지 주면 톤이 섞인다
-    const mine = (previous.results || []).find((r) => r?.channel === channel)
+    // 이 묶음이 맡은 채널의 이전 원고만 준다 — 다른 채널 원고까지 주면 톤이 섞인다
+    const mine = (previous.results || []).filter((r) => group.includes(r?.channel))
     content += `
 
-[이 채널의 이전 결과]
-${JSON.stringify(mine || null)}
+[이 채널들의 이전 결과]
+${JSON.stringify(mine)}
 
 [사용자 피드백]
 ${userDataBlock('사용자 피드백', feedback)}
@@ -132,27 +155,31 @@ ${userDataBlock('사용자 피드백', feedback)}
   return content
 }
 
-// 채널별로 동시에 생성한다.
-// 한 채널이 실패해도 나머지 채널은 그대로 살린다 — 예전에는 전부 예시 결과로 떨어졌다.
+// 채널을 묶음으로 나눠 동시에 생성한다.
+// 한 묶음이 실패해도 나머지 채널은 그대로 살린다 — 예전에는 전부 예시 결과로 떨어졌다.
 export async function generateChannels(env, { system, product, channels, previous, feedback }) {
+  const groups = chunkChannels(channels)
   const { settled, timing } = await runAll(
-    channels.map((channel) => () =>
+    groups.map((group) => () =>
       callClaudeTool(env, {
         system,
-        user: channelUserContent({ product, channel, channels, previous, feedback }),
-        tool: ONE_CHANNEL_TOOL,
-        maxTokens: 4096,
-        timeoutMs: 70000,
+        user: groupUserContent({ product, group, channels, previous, feedback }),
+        tool: CHANNELS_TOOL,
+        maxTokens: 8192,
+        timeoutMs: 80000,
       })
     )
   )
 
   const raw = []
   const failed = []
-  settled.forEach((r, i) => {
-    const got = r.status === 'fulfilled' ? r.value.input : null
-    if (!got) return failed.push(channels[i])
-    raw.push({ ...got, channel: channels[i] })
+  settled.forEach((r, gi) => {
+    const got = r.status === 'fulfilled' ? r.value.input?.results : null
+    if (!Array.isArray(got)) return failed.push(...groups[gi])
+    // 요청하지 않은 채널이 섞여 오면 버린다 (묶음 단위로 검사)
+    const kept = got.filter((x) => groups[gi].includes(x?.channel))
+    raw.push(...kept)
+    failed.push(...groups[gi].filter((c) => !kept.some((x) => x.channel === c)))
   })
 
   // 항목 단위 정규화는 기존 계약 검증을 그대로 쓴다.
