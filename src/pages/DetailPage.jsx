@@ -235,6 +235,7 @@ export default function DetailPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              <ResultNotice text={result.input_warning} />
               <FixViolations
                 summary={violationSummary(result)}
                 onFix={revise}

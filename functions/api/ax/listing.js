@@ -5,6 +5,8 @@ import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
+import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
+import { failureCode } from '../../_lib/claude.js'
 
 function adCheckListing(result, brand) {
   return checkTexts(
@@ -51,7 +53,7 @@ const SYSTEM = `당신은 오픈마켓(네이버 스마트스토어, 쿠팡 등)
 1. 상품명은 [브랜드/수식어] + 핵심키워드 + 속성/규격 구조로, 특수문자 남용 없이 50자 이내로 작성하세요.
 2. 키워드는 검색량이 있을 법한 실제 구매 검색어 위주로, 대표키워드와 세부(롱테일)키워드를 섞으세요.
 3. 제품 정보에 없는 속성을 지어내지 마세요.
-${COMPLIANCE_RULES}`
+${COMPLIANCE_RULES}${DATA_GUARD}`
 
 function demoResult() {
   return {
@@ -95,6 +97,7 @@ export async function onRequestPost(context) {
 
   // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 없으면 null
   const brand = sanitizeBrand(body.brand)
+  const injected = injectionNotice(detectInjection([input.name, input.features]))
 
   const startedAt = Date.now()
 
@@ -126,7 +129,8 @@ export async function onRequestPost(context) {
   try {
     const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM + brandPrompt(brand),
-      user: `[제품 정보]\n${JSON.stringify(input, null, 2)}`,
+      // 제품 정보는 데이터 블록으로 격리한다 (입력 속 지시문을 따르지 않도록)
+      user: `[제품 정보]\n${userDataJson('제품 정보', input)}`,
       tool: TOOL,
       maxTokens: 4096,
       timeoutMs: 60000,
@@ -136,10 +140,10 @@ export async function onRequestPost(context) {
     })
     const adCheck = adCheckListing(result, brand)
     logCall(context, { endpoint: 'listing', mode: 'live', startedAt, usage, findingsCount: adCheck.length })
-    return json({ demo: false, usage, ad_check: adCheck, brand_applied: Boolean(brand), ...result })
+    return json({ demo: false, usage, ad_check: adCheck, brand_applied: Boolean(brand), input_warning: injected, ...result })
   } catch (err) {
     const demo = demoResult(input)
-    logCall(context, { endpoint: 'listing', mode: 'fallback', startedAt })
+    logCall(context, { endpoint: 'listing', mode: 'fallback', startedAt, reason: failureCode(err) })
     return json({ ...demo, ad_check: adCheckListing(demo, brand), brand_applied: Boolean(brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

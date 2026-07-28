@@ -5,6 +5,8 @@ import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js'
+import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
+import { failureCode } from '../../_lib/claude.js'
 
 function withAdCheck(results, brand) {
   for (const r of results) {
@@ -60,7 +62,7 @@ const SYSTEM = `당신은 온라인 유통사의 SNS 콘텐츠 마케터입니�
 1. 채널마다 말투·길이·구조가 달라야 합니다. 아래 채널 스펙을 따르세요.
 2. 제품 정보에 있는 사실만 사용하세요.
 3. 바이럴을 노리되 신뢰를 깎는 낚시성 문구는 금지.
-${COMPLIANCE_RULES}`
+${COMPLIANCE_RULES}${DATA_GUARD}`
 
 const DEMO_BODIES = {
   instagram: {
@@ -141,6 +143,7 @@ export async function onRequestPost(context) {
 
   // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 없으면 null
   const brand = sanitizeBrand(body.brand)
+  const injected = injectionNotice(detectInjection([product.name, product.features, product.target, product.tone, feedback]))
 
   const startedAt = Date.now()
 
@@ -170,9 +173,10 @@ export async function onRequestPost(context) {
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   const specs = channels.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
-  let userContent = `[제품 정보]\n${JSON.stringify(product, null, 2)}\n\n[요청 채널과 스펙]\n${specs}\n\n요청된 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`
+  // 제품 정보·사용자 피드백은 데이터 블록으로 격리한다 (입력 속 지시문을 따르지 않도록)
+  let userContent = `[제품 정보]\n${userDataJson('제품 정보', product)}\n\n[요청 채널과 스펙]\n${specs}\n\n요청된 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`
   if (previous) {
-    userContent += `\n\n[이전 생성 결과]\n${JSON.stringify(previous)}\n\n[사용자 피드백]\n${feedback}\n\n위 피드백을 모든 요청 채널에 일관되게 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분은 유지하세요.`
+    userContent += `\n\n[이전 생성 결과]\n${JSON.stringify(previous)}\n\n[사용자 피드백]\n${userDataBlock('사용자 피드백', feedback)}\n\n위 피드백을 모든 요청 채널에 일관되게 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분은 유지하세요.`
   }
   try {
     const { input: result, usage } = await callClaudeTool(env, {
@@ -195,10 +199,10 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, ...result, results: checked, ...brandMeta(checked, brand) })
+    return json({ demo: false, usage, ...result, results: checked, input_warning: injected, ...brandMeta(checked, brand) })
   } catch (err) {
     const demo = demoResult(channels)
-    logCall(context, { endpoint: 'content', mode: 'fallback', startedAt })
+    logCall(context, { endpoint: 'content', mode: 'fallback', startedAt, reason: failureCode(err) })
     return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

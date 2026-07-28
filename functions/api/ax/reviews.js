@@ -1,10 +1,12 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES, failureCode } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js'
+import { DATA_GUARD, userDataBlock, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
+import { detectEscalation, SAFE_REPLY } from '../../../src/lib/escalation.js'
 
 const MAX_REVIEWS = 8
 
@@ -50,7 +52,7 @@ const SYSTEM = `당신은 온라인 유통사 CS팀의 리뷰 답변 어시스�
 2. 답변은 정중한 한국어(합니다체), 3~5문장. 공감 → 안내/조치 → 마무리 인사 구조.
 3. **에스컬레이션 원칙 (가장 중요)**: 건강 이상·부작용 호소, 알레르기 반응, 법적 조치 언급, 과도한 보상 요구, 분쟁 소지가 있는 리뷰는 escalate=true로 표시하고, 답변 초안은 "확인 후 개별 연락드리겠습니다" 수준의 보수적 문구만 작성하세요. 의학적 판단·보상 약속·책임 인정을 절대 하지 마세요.
 4. 배송 지연은 사과 + 조회 안내, 품질 문의는 보관법/섭취법 안내, 환불/교환은 절차 안내로 답하세요.
-${COMPLIANCE_RULES}`
+${COMPLIANCE_RULES}${DATA_GUARD}`
 
 const DEMO_MAP = [
   {
@@ -143,6 +145,28 @@ export function normalizeReplies(results) {
   })
 }
 
+// 규칙이 AI 판단을 덮어쓴다 — 안전한 쪽(사람 확인)으로만 기운다.
+export function applyEscalationRules(results, reviews) {
+  return results.map((r, i) => {
+    const rule = detectEscalation(reviews[i])
+    if (!rule.escalate) return { ...r, escalation_source: r.escalate ? 'ai' : null }
+    if (r.escalate) {
+      // AI도 이미 올렸다면 답변은 그대로 두고 사유만 보강한다
+      return { ...r, escalate_reason: r.escalate_reason || rule.reason, escalation_source: 'ai' }
+    }
+    // AI가 놓쳤다 — 규칙이 강제로 올리고, 답변도 보수적 문구로 교체한다.
+    // (AI 답변에 보상 약속이나 의학적 판단이 섞여 있을 수 있으므로 그대로 내보내지 않는다)
+    return {
+      ...r,
+      escalate: true,
+      escalate_reason: rule.reason,
+      escalation_source: 'rule',
+      escalation_matched: rule.matched,
+      reply: SAFE_REPLY,
+    }
+  })
+}
+
 function withAdCheck(results, brand) {
   return results.map((r) => ({ ...r, ad_check: checkTexts([r.reply], brand) }))
 }
@@ -162,16 +186,19 @@ function withBrandCheck(results, brand) {
   return { results: checked, meta: { brand_applied: true, brand_missing: [...all] } }
 }
 
-// 응답 조립 — 표시광고 점검 + 룰북 점검을 한 번에 얹는다
-function withChecks(results, brand) {
-  const { results: checked, meta } = withBrandCheck(withAdCheck(results, brand), brand)
+// 응답 조립 — 규칙 기반 에스컬레이션 → 표시광고 점검 → 룰북 점검 순서로 얹는다.
+// 순서가 중요하다: 답변이 교체될 수 있으므로 점검은 항상 "최종 답변" 기준으로 돌아야 한다.
+function withChecks(results, reviews, brand) {
+  const forced = applyEscalationRules(results, reviews)
+  const { results: checked, meta } = withBrandCheck(withAdCheck(forced, brand), brand)
   return { results: checked, ...meta }
 }
 
 // 최초 작성과 재작성(위반 답변만 다시)에 같은 도구를 쓰되, 지시문만 달라진다
 function buildUserContent(reviews, fixes) {
   const list = reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')
-  const base = `[고객 리뷰 (${reviews.length}건)]\n${list}\n\n모든 리뷰에 대해 순서대로 분류·답변·에스컬레이션 판단을 기록하세요.`
+  // 리뷰 본문은 데이터 블록으로 격리한다 — 안에 지시문이 있어도 따르지 않도록
+  const base = `[고객 리뷰 (${reviews.length}건)]\n${userDataBlock('고객 리뷰 원문', list)}\n\n각 리뷰에 대해 순서대로 분류·답변·에스컬레이션 판단을 기록하세요.`
   const retry = fixes.filter((f) => f.violations.length > 0)
   if (retry.length === 0) return base
   const detail = fixes
@@ -213,6 +240,9 @@ export async function onRequestPost(context) {
   // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 답변 말투·금지어에 적용된다
   const brand = sanitizeBrand(body?.brand)
 
+  // 프롬프트 주입 의심 표현 — 요청을 막지는 않고(데이터 격리로 무력화) 사람에게 알린다
+  const injected = injectionNotice(detectInjection(reviews))
+
   const startedAt = Date.now()
 
   // 보안 검증 실패도 하드 차단하지 않는다 — 예시 결과로 강등하고 사유를 기록한다
@@ -220,18 +250,18 @@ export async function onRequestPost(context) {
   if (!guard.ok) {
     logCall(context, { endpoint: 'reviews', mode: 'unverified', startedAt })
     const demo = demoResult(reviews, fixes)
-    return json({ ...demo, ...withChecks(demo.results, brand), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
+    return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
   }
 
   if (!hasApiKey(env)) {
     const demo = demoResult(reviews, fixes)
     logCall(context, { endpoint: 'reviews', mode: 'demo', startedAt })
-    return json({ ...demo, ...withChecks(demo.results, brand) })
+    return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand) })
   }
 
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
     const demo = demoResult(reviews, fixes)
-    return json({ ...demo, ...withChecks(demo.results, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
   }
 
   const ip = clientIp(request)
@@ -253,7 +283,7 @@ export async function onRequestPost(context) {
       result.results.filter((r) => r && typeof r.reply === 'string').slice(0, reviews.length)
     )
     if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
-    const checked = withChecks(result.results, brand)
+    const checked = withChecks(result.results, reviews, brand)
     logCall(context, {
       endpoint: 'reviews',
       mode: 'live',
@@ -261,10 +291,10 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.results.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, ...checked })
+    return json({ demo: false, usage, input_warning: injected, ...checked })
   } catch (err) {
     const demo = demoResult(reviews, fixes)
-    logCall(context, { endpoint: 'reviews', mode: 'fallback', startedAt })
-    return json({ ...demo, ...withChecks(demo.results, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
+    logCall(context, { endpoint: 'reviews', mode: 'fallback', startedAt, reason: failureCode(err) })
+    return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

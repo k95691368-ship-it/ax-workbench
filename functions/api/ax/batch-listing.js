@@ -5,6 +5,8 @@ import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
+import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
+import { failureCode } from '../../_lib/claude.js'
 
 const MAX_PRODUCTS = 5
 
@@ -40,7 +42,7 @@ const SYSTEM = `당신은 오픈마켓 상품 대량 등록 담당자입니다. 
 1. 입력된 모든 상품에 대해 각각 결과를 만드세요. 순서를 유지하고 input_name에 원래 상품명을 그대로 적으세요.
 2. 상품명은 [수식어] + 핵심키워드 + 규격 구조, 50자 이내.
 3. 제품 정보에 없는 속성을 지어내지 마세요.
-${COMPLIANCE_RULES}`
+${COMPLIANCE_RULES}${DATA_GUARD}`
 
 function demoResult(products) {
   return {
@@ -80,8 +82,9 @@ function withAdCheck(results, products, brand) {
 
 // 최초 생성과 재생성(위반 상품만 다시)에 같은 도구를 쓰되, 지시문만 달라진다
 function buildUserContent(products) {
+  // 상품 목록은 데이터 블록으로 격리한다 (입력 속 지시문을 따르지 않도록)
   const base = `[상품 목록 (${products.length}개)]
-${JSON.stringify(products, null, 2)}
+${userDataJson('상품 목록', products)}
 
 목록의 모든 상품에 대해 각각 결과를 기록하세요.`
   const retry = products.filter((p) => p.violations.length > 0)
@@ -116,6 +119,7 @@ export async function onRequestPost(context) {
 
   // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 없으면 null
   const brand = sanitizeBrand(body?.brand)
+  const injected = injectionNotice(detectInjection(products.flatMap((p) => [p.name, p.features])))
 
   const startedAt = Date.now()
 
@@ -175,10 +179,10 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, results: checked, brand_applied: Boolean(brand) })
+    return json({ demo: false, usage, results: checked, brand_applied: Boolean(brand), input_warning: injected })
   } catch (err) {
     const demo = demoResult(products)
-    logCall(context, { endpoint: 'batch-listing', mode: 'fallback', startedAt })
+    logCall(context, { endpoint: 'batch-listing', mode: 'fallback', startedAt, reason: failureCode(err) })
     return json({ ...demo, results: withAdCheck(demo.results, products, brand), brand_applied: Boolean(brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

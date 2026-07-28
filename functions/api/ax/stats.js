@@ -22,6 +22,23 @@ export async function onRequestGet(context) {
     const total = results.reduce((s, r) => s + r.calls, 0)
     const live = byMode.live || null
 
+    // 폴백이 "왜" 일어났는지 — 사유가 없으면 건수만 쌓이고 무엇을 고칠지는 알 수 없다.
+    // reason 컬럼이 아직 없는 DB에서도 지표 전체가 죽지 않도록 따로 감싼다.
+    let failureReasons = []
+    try {
+      const r = await env.DB.prepare(
+        `SELECT reason, COUNT(*) AS calls
+         FROM ai_calls
+         WHERE created_at >= datetime('now', '-7 days') AND reason IS NOT NULL
+         GROUP BY reason
+         ORDER BY calls DESC
+         LIMIT 5`
+      ).all()
+      failureReasons = (r.results || []).map((row) => ({ reason: row.reason, calls: row.calls }))
+    } catch {
+      failureReasons = []
+    }
+
     return json({
       available: true,
       days: 7,
@@ -33,6 +50,7 @@ export async function onRequestGet(context) {
       findings: live?.findings || 0,
       fallback_calls: byMode.fallback?.calls || 0,
       unverified_calls: byMode.unverified?.calls || 0,
+      failure_reasons: failureReasons,
     })
   } catch {
     // 테이블 미생성 등 — 지표 없이도 사이트는 정상 동작해야 한다

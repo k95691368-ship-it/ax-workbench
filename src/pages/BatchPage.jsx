@@ -291,6 +291,7 @@ export default function BatchPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              <ResultNotice text={result.input_warning} />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <BrandBadge applied={result.brand_applied} />

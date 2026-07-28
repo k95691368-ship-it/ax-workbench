@@ -209,6 +209,7 @@ export default function ContentPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              <ResultNotice text={result.input_warning} />
               <FixViolations
                 summary={mergeViolations([...(result.results || []), { brand_missing: result.brand_missing }])}
                 onFix={revise}

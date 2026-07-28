@@ -180,6 +180,7 @@ export default function ReviewsPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              <ResultNotice text={result.input_warning} />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
@@ -221,6 +222,16 @@ export default function ReviewsPage() {
                       {r.escalate && (
                         <span className="escalate-badge" title={r.escalate_reason || '담당자 판단 필요'}>
                           ⚠ 담당자 확인 필요
+                        </span>
+                      )}
+                      {r.escalation_source === 'rule' && (
+                        <span
+                          className="rule-badge"
+                          title={`AI는 자동 응대로 판단했지만, 안전 규칙이 담당자 확인으로 올렸습니다.${
+                            r.escalation_matched ? ` (검출: ${r.escalation_matched.join(', ')})` : ''
+                          }`}
+                        >
+                          규칙 강제
                         </span>
                       )}
                       <button type="button" className="copy-mini" onClick={() => copyReply(i, r.reply)}>

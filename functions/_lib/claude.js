@@ -1,5 +1,17 @@
 const MODEL = 'claude-opus-5'
 
+// 실패를 사유 코드와 함께 던진다 — 텔레메트리에 "왜 실패했는지"를 남기기 위해서다.
+// 사유가 없으면 폴백 건수만 쌓이고, 무엇을 고쳐야 하는지는 사람이 손으로 찾아야 한다.
+export function failure(code, message) {
+  const err = new Error(message)
+  err.code = code
+  return err
+}
+
+export function failureCode(err) {
+  return err?.code || 'unknown'
+}
+
 export function hasApiKey(env) {
   return Boolean(env.CLAUDE_API_KEY)
 }
@@ -47,25 +59,28 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
     }
   } catch (err) {
     if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-      throw new Error('AI 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.')
+      throw failure('timeout', 'AI 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.')
     }
-    throw err
+    throw failure('network', err?.message || 'AI 서비스에 연결하지 못했습니다.')
   }
 
   if (!res.ok) {
-    throw new Error(`AI 서비스가 혼잡합니다 (${res.status}). 잠시 후 다시 시도해주세요.`)
+    throw failure(
+      res.status === 429 ? 'rate_limited' : `http_${res.status}`,
+      `AI 서비스가 혼잡합니다 (${res.status}). 잠시 후 다시 시도해주세요.`
+    )
   }
 
   const data = await res.json()
   // max_tokens로 잘린 tool 입력은 불완전한 JSON일 수 있으므로 toolUse 존재 여부와 무관하게 거부한다.
   if (data.stop_reason === 'max_tokens') {
-    throw new Error('AI 응답이 너무 길어 중단되었습니다. 입력을 줄여 다시 시도해주세요.')
+    throw failure('max_tokens', 'AI 응답이 너무 길어 중단되었습니다. 입력을 줄여 다시 시도해주세요.')
   }
   const toolUse = Array.isArray(data.content)
     ? data.content.find((block) => block.type === 'tool_use')
     : null
   if (!toolUse || typeof toolUse.input !== 'object' || toolUse.input === null) {
-    throw new Error('AI 응답에서 결과를 찾을 수 없습니다. 잠시 후 다시 시도해주세요.')
+    throw failure('no_tool_use', 'AI 응답에서 결과를 찾을 수 없습니다. 잠시 후 다시 시도해주세요.')
   }
   const usage = data.usage
     ? { input_tokens: data.usage.input_tokens, output_tokens: data.usage.output_tokens }
@@ -78,12 +93,12 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
 export function ensureContract(input, { arrays = [], strings = [] } = {}) {
   for (const key of arrays) {
     if (!Array.isArray(input[key])) {
-      throw new Error(`AI 응답이 불완전합니다(${key} 누락). 다시 시도해주세요.`)
+      throw failure('contract', `AI 응답이 불완전합니다(${key} 누락). 다시 시도해주세요.`)
     }
   }
   for (const key of strings) {
     if (typeof input[key] !== 'string' || !input[key].trim()) {
-      throw new Error(`AI 응답이 불완전합니다(${key} 누락). 다시 시도해주세요.`)
+      throw failure('contract', `AI 응답이 불완전합니다(${key} 누락). 다시 시도해주세요.`)
     }
   }
   return input

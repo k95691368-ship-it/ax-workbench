@@ -179,9 +179,26 @@ export default function AboutPage() {
               </span>
             </div>
           </div>
+          {stats.failure_reasons?.length > 0 && (
+            <div className="fail-reasons">
+              <p className="fail-reasons-title">실패 사유 기록</p>
+              <ul>
+                {stats.failure_reasons.map((f) => (
+                  <li key={f.reason}>
+                    <code>{f.reason}</code> {f.calls}건
+                  </li>
+                ))}
+              </ul>
+              <p className="about-point">
+                "폴백 N건"만 세면 무엇을 고쳐야 할지 알 수 없어, 실패할 때마다 사유 코드를 함께
+                남깁니다. 실제로 이 기록이 없던 시절 상세페이지 타임아웃 문제를 손으로 찾아야 했고,
+                그 경험이 이 항목을 만든 이유입니다.
+              </p>
+            </div>
+          )}
           <p className="about-point">
-            호출마다 모드(라이브/샘플/폴백)·소요시간·토큰을 D1에 기록하고 집계합니다. 개인정보는
-            저장하지 않습니다.
+            호출마다 모드(라이브/샘플/폴백)·소요시간·토큰·실패 사유를 D1에 기록하고 집계합니다.
+            개인정보는 저장하지 않습니다.
           </p>
         </section>
       )}
