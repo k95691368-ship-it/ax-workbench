@@ -32,6 +32,26 @@ export function UsageNote({ usage }) {
   )
 }
 
+// 병렬 생성으로 실제로 얼마나 시간을 벌었는지 보여준다.
+//
+// 연출이 아니라 서버가 호출마다 잰 실측이다. 개별 호출 시간의 합은 예전 구조
+// (한 번에 다 만들기)였다면 걸렸을 시간이고, total은 실제 걸린 시간이다.
+export function ParallelNote({ timing }) {
+  if (!timing?.total_ms || !timing?.serial_ms) return null
+  const speedup = timing.serial_ms / timing.total_ms
+  if (speedup < 1.2) return null
+  const sec = (ms) => (ms / 1000).toFixed(1)
+  return (
+    <span
+      className="usage-note"
+      title={`${timing.calls}개 호출을 동시에 실행했습니다. 개별 소요시간 합계 ${sec(timing.serial_ms)}초 → 실제 ${sec(timing.total_ms)}초.`}
+    >
+      병렬 생성 {timing.calls}회 · {sec(timing.serial_ms)}초 작업을 {sec(timing.total_ms)}초에 (
+      {speedup.toFixed(1)}배)
+    </span>
+  )
+}
+
 // 브랜드 룰북이 이번 생성에 실제로 적용됐는지, 필수 문구가 빠지진 않았는지 보여준다.
 export function BrandBadge({ applied, missing }) {
   if (applied == null) return null

@@ -230,3 +230,13 @@ describe('피드백 재생성 — 항목별 동시 재작성', () => {
     await expect(reviseDetail(ENV, { ...REVISE_CALL, previous: { sections: [] } })).rejects.toThrow(/섹션이 없어/)
   })
 })
+
+describe('재생성 폴백의 완결성', () => {
+  it('프레임이 실패하면 키워드까지 이전 값으로 되돌린다', async () => {
+    vi.stubGlobal('fetch', mockRevise({ fail: ['frame'] }))
+    const { result } = await reviseDetail(ENV, REVISE_CALL)
+    expect(result.keywords).toEqual(PREVIOUS.keywords)
+    expect(result.faq).toEqual(PREVIOUS.faq)
+    expect(result.designer_notes).toBe(PREVIOUS.designer_notes)
+  })
+})

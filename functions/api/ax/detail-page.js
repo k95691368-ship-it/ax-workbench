@@ -120,6 +120,9 @@ export async function onRequestPost(context) {
         faq: Array.isArray(p.faq)
           ? p.faq.slice(0, 5).map((f) => ({ q: String(f?.q || '').slice(0, 150), a: String(f?.a || '').slice(0, 300) }))
           : [],
+        // 키워드도 받아둔다 — 프레임 재작성이 실패했을 때 되돌릴 값이 없으면
+        // "고치려다 잃지 않는다"는 재생성의 전제가 이 항목에서만 깨진다.
+        keywords: Array.isArray(p.keywords) ? p.keywords.slice(0, 12).map((k) => String(k).slice(0, 40)) : [],
         designer_notes: String(p.designer_notes || '').slice(0, 500),
       }
     }

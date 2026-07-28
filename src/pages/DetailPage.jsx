@@ -5,7 +5,7 @@ import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { DP_THEMES, getTheme, orbStyle, makeCustomTheme, fileToResizedDataUrl } from '../lib/themes.js'
 import { buildHtml, buildBrief, downloadFile, safeFileName } from '../lib/detailHtml.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { AdCheckBadge, BrandBadge, FactCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { AdCheckBadge, BrandBadge, FactCheckBadge, UsageNote, ParallelNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import FixViolations from '../components/FixViolations.jsx'
 import { violationSummary } from '../lib/fixViolations.js'
@@ -20,10 +20,13 @@ const QUICK_FEEDBACK = [
   '인증·보장균수 같은 신뢰 요소를 더 강조해줘',
 ]
 
+// 진행 표시는 실제 구조를 따라가야 한다.
+// 예전에는 "섹션 구조를 설계하고 있어요" 단계가 있었지만, 그 설계를 코드에 고정해
+// 없애는 것이 이번 속도 개선의 핵심이었다. 사라진 단계를 그대로 두면 화면이 거짓말을 한다.
 const LOADING_STEPS = [
   '제품 정보를 분석하고 있어요',
-  '섹션 구조를 설계하고 있어요',
-  '섹션별 카피를 쓰고 있어요',
+  '섹션 6개를 동시에 쓰고 있어요',
+  '헤드라인·FAQ·키워드를 함께 만들고 있어요',
   '표시광고 기준으로 검수하고 있어요',
 ]
 
@@ -132,6 +135,7 @@ export default function DetailPage() {
             subheadline: result.subheadline,
             sections: result.sections,
             faq: result.faq,
+            keywords: result.keywords,
             designer_notes: result.designer_notes,
           },
         },
@@ -247,6 +251,7 @@ export default function DetailPage() {
                 <FactCheckBadge findings={result.fact_check} />
                 <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
                 <UsageNote usage={result.usage} />
+                <ParallelNote timing={result.timing} />
                 <div className="viewport-toggle" role="group" aria-label="미리보기 크기">
                   <button
                     type="button"
