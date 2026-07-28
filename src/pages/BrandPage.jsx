@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loadBrand, saveBrand, clearBrand, linesToList, listToLines } from '../lib/brand.js'
 import { brandPrompt, isBrandActive, normalizeBrand } from '../lib/brandRules.js'
@@ -34,6 +34,8 @@ export default function BrandPage() {
     return { ...b, banned: listToLines(b.banned), required: listToLines(b.required) }
   })
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
 
   const brand = useMemo(
     () => normalizeBrand({ ...form, banned: linesToList(form.banned), required: linesToList(form.required) }),
@@ -63,6 +65,39 @@ export default function BrandPage() {
     clearBrand()
     setForm({ name: '', tone: '', audience: '', banned: '', required: '', notes: '' })
     setSaved(false)
+  }
+
+  // 룰북을 파일로 주고받기 — 담당자가 정한 기준을 팀에 그대로 배포할 수 있게 한다
+  function exportBrand() {
+    const blob = new Blob([JSON.stringify(brand, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `브랜드룰북${brand.name ? `_${brand.name}` : ''}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function importBrand(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setError('')
+    try {
+      const parsed = normalizeBrand(JSON.parse(await file.text()))
+      if (!isBrandActive(parsed)) {
+        setError('룰북 내용이 비어 있는 파일입니다.')
+        return
+      }
+      setForm({
+        ...parsed,
+        banned: listToLines(parsed.banned),
+        required: listToLines(parsed.required),
+      })
+      setSaved(false)
+    } catch {
+      setError('룰북 파일을 읽지 못했습니다. 이 화면에서 내보낸 .json 파일인지 확인해주세요.')
+    }
   }
 
   function fillSample() {
@@ -172,10 +207,25 @@ export default function BrandPage() {
             <button type="button" className="btn-ghost" onClick={fillSample}>
               예시 룰북 채우기
             </button>
+            <button type="button" className="btn-ghost" onClick={exportBrand}>
+              파일로 내보내기
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => fileRef.current?.click()}>
+              파일에서 불러오기
+            </button>
             <button type="button" className="btn-ghost" onClick={onReset}>
               전체 삭제
             </button>
+            <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={importBrand} />
           </div>
+          <p className="field-hint">
+            내보낸 룰북 파일을 팀원에게 전달하면, 같은 기준을 그대로 불러와 쓸 수 있습니다.
+          </p>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
           {saved && (
             <p className="form-success" role="status">
               ✓ 저장했습니다. 지금부터 모든 생성 기능에 적용됩니다.

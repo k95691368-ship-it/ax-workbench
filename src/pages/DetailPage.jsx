@@ -7,6 +7,8 @@ import { buildHtml, buildBrief, downloadFile, safeFileName } from '../lib/detail
 import DemoBadge from '../components/DemoBadge.jsx'
 import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import FixViolations from '../components/FixViolations.jsx'
+import { violationSummary } from '../lib/fixViolations.js'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
 
@@ -219,6 +221,11 @@ export default function DetailPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              <FixViolations
+                summary={violationSummary(result)}
+                onFix={revise}
+                busy={revising}
+              />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <AdCheckBadge findings={result.ad_check} />

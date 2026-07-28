@@ -6,6 +6,8 @@ import DemoBadge from '../components/DemoBadge.jsx'
 import ChannelPreview from '../components/ChannelPreview.jsx'
 import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import FixViolations from '../components/FixViolations.jsx'
+import { mergeViolations } from '../lib/fixViolations.js'
 
 const GEN_STEPS = [
   '제품 정보를 분석하고 있어요',
@@ -187,6 +189,11 @@ export default function ContentPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              <FixViolations
+                summary={mergeViolations([...(result.results || []), { brand_missing: result.brand_missing }])}
+                onFix={revise}
+                busy={revising}
+              />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
