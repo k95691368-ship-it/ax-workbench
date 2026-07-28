@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { onRequestPost } from '../functions/api/ax/reviews.js'
+import { onRequestPost, normalizeReplies } from '../functions/api/ax/reviews.js'
 
 // API 키 없이 호출하면 예시 응답 경로를 타므로, 룰북 점검 로직만 독립적으로 검증할 수 있다.
 async function callReviews(body) {
@@ -78,5 +78,22 @@ describe('리뷰 답변 재작성 모드', () => {
     const data = await callReviews({ reviews: ['배송이 너무 늦어요'] })
     expect(data.results[0].category).toBe('배송')
     expect(data.results[0].reply).toContain('죄송')
+  })
+})
+
+describe('AI 응답 필드 누락에 대한 안전장치', () => {
+  it('판단 값(escalate)이 없으면 담당자 확인으로 기울인다', () => {
+    const [row] = normalizeReplies([{ reply: '답변', category: '배송' }])
+    expect(row.escalate).toBe(true)
+    expect(row.escalate_reason).toContain('안전하게')
+  })
+
+  it('AI가 판단했다면 그 값을 그대로 존중한다', () => {
+    expect(normalizeReplies([{ reply: 'a', category: '칭찬', escalate: false }])[0].escalate).toBe(false)
+    expect(normalizeReplies([{ reply: 'a', category: '품질', escalate: true }])[0].escalate).toBe(true)
+  })
+
+  it('알 수 없는 분류는 기타로 떨어뜨린다 (화면이 깨지지 않게)', () => {
+    expect(normalizeReplies([{ reply: 'a', category: '이상한분류', escalate: false }])[0].category).toBe('기타')
   })
 })

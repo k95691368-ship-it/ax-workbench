@@ -124,6 +124,25 @@ function demoResult(reviews, fixes = []) {
   }
 }
 
+const CATEGORIES = ['칭찬', '배송', '품질', '환불/교환', '사용문의', '기타']
+
+// AI 응답에서 판단 값이 빠질 수 있다(tool 강제 호출도 필드 누락까지 막아주지는 않는다).
+// 이때 "에스컬레이션 아님"으로 넘겨 버리면 건강 이상 호소 같은 건이 자동 응대로 나갈 수 있으므로,
+// 판단 값이 없으면 **사람 확인 쪽으로 안전하게 기울인다**(fail-safe).
+export function normalizeReplies(results) {
+  return results.map((r) => {
+    const decided = typeof r.escalate === 'boolean'
+    return {
+      ...r,
+      category: CATEGORIES.includes(r.category) ? r.category : '기타',
+      escalate: decided ? r.escalate : true,
+      escalate_reason: decided
+        ? r.escalate_reason || null
+        : 'AI가 판단 값을 남기지 않아 안전하게 담당자 확인으로 분류했습니다.',
+    }
+  })
+}
+
 function withAdCheck(results, brand) {
   return results.map((r) => ({ ...r, ad_check: checkTexts([r.reply], brand) }))
 }
@@ -230,9 +249,9 @@ export async function onRequestPost(context) {
       timeoutMs: 70000,
     })
     ensureContract(result, { arrays: ['results'] })
-    result.results = result.results
-      .filter((r) => r && typeof r.reply === 'string')
-      .slice(0, reviews.length)
+    result.results = normalizeReplies(
+      result.results.filter((r) => r && typeof r.reply === 'string').slice(0, reviews.length)
+    )
     if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
     const checked = withChecks(result.results, brand)
     logCall(context, {

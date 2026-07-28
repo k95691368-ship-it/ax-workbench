@@ -153,9 +153,19 @@ export async function onRequestPost(context) {
       timeoutMs: 70000,
     })
     ensureContract(result, { arrays: ['results'] })
+    // AI 응답에 필드가 빠질 수 있으므로 표에 그리기 전에 모양을 맞춘다.
+    // 특히 input_name은 화면의 행 식별자이자 재생성 대상 매칭 기준이라, 응답을 믿지 않고
+    // 우리가 보낸 상품명으로 확정한다 (상품이 뒤바뀌는 사고 방지).
     result.results = result.results
       .filter((r) => r && typeof r.title === 'string')
       .slice(0, products.length)
+      .map((r, i) => ({
+        input_name: products[i]?.name || (typeof r.input_name === 'string' ? r.input_name : ''),
+        title: r.title,
+        alt_title: typeof r.alt_title === 'string' ? r.alt_title : '',
+        keywords: Array.isArray(r.keywords) ? r.keywords.filter((k) => typeof k === 'string') : [],
+        tags: Array.isArray(r.tags) ? r.tags.filter((k) => typeof k === 'string') : [],
+      }))
     if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
     const checked = withAdCheck(result.results, products, brand)
     logCall(context, {
