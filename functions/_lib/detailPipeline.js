@@ -1,47 +1,73 @@
-// 상세페이지 생성 파이프라인 — 단일 거대 호출을 "개요 → 섹션 병렬"로 쪼갠다.
+// 상세페이지 생성 파이프라인 — 모든 호출을 처음부터 동시에 띄운다.
 //
-// 왜 바꿨나 (실측 근거):
-//   기능별 계측에서 상세페이지만 평균 37초, 폴백률 20%로 다른 기능(7~17초, 0%)과 달랐다.
-//   원인은 구조였다 — 헤드라인·섹션 4~6개·FAQ·키워드·디자이너 메모를 **한 번의 호출로**
-//   순차 생성하니 출력 토큰이 쌓이는 만큼 시간이 늘고, 그 한 번이 늦으면 페이지 전체가
-//   예시 결과로 강등됐다. 즉 지연과 실패가 같은 원인에서 나왔다.
+// 어떻게 여기까지 왔나 (실측 3단계):
+//   1) 기능별 계측: 상세페이지만 평균 37초·폴백률 20% (다른 기능은 7~17초·0%).
+//      실측 재확인 49.7초 / 45.4초.
+//   2) 단일 거대 호출을 "개요 → 섹션 병렬"로 쪼갬 → 43.9초. 겨우 10% 개선.
+//   3) 단계별 시간 계측: 개요 33.2초 / 섹션 13.5초(개별 합 52.2초).
+//      → 병렬화 자체는 3.9배로 완벽히 작동했다. 병목은 그 앞의 개요였고,
+//         섹션들이 개요를 기다리느라 전체가 다시 직렬이 됐다.
 //
-// 바뀐 구조:
-//   1단계 — 개요 1회: 헤드라인·섹션 계획(제목/역할/이미지 지시)·FAQ·키워드·디자이너 메모.
-//           출력이 짧아 빠르다.
-//   2단계 — 섹션 본문을 **동시에** 생성. 전체 시간은 합이 아니라 "가장 느린 한 섹션"이 된다.
+// 그래서 의존성을 없앴다.
+//   섹션 구조를 AI에게 매번 새로 설계시키지 않고, 검증된 5단 구성을 코드에 고정한다.
+//   (문제 공감 → 해결 → 특징 → 신뢰 → 구매 안내 — 원래도 프롬프트에 "권장"으로 적어
+//    사실상 이 구조가 나오고 있었다. 명시하는 대가는 작고, 얻는 건 크다.)
+//   구조가 고정되면 섹션은 개요를 기다릴 이유가 없다. 헤드라인·FAQ·키워드까지
+//   전부 t=0에 동시에 띄운다. 전체 시간은 "가장 느린 호출 하나"가 된다.
 //
-// 부수 효과가 더 크다: 한 섹션이 실패해도 나머지는 살아남는다.
-// 예전에는 한 번의 지연이 페이지 전체를 예시로 떨어뜨렸지만, 이제는 그 섹션만 잃는다.
+// 겹침 방지: 각 호출에 다른 섹션이 맡은 범위를 함께 준다. 서로를 못 봐도 역할을 안다.
+// 부분 실패 격리: 한 섹션이 실패해도 나머지로 페이지를 완성한다.
 
 import { callClaudeTool, failure } from './claude.js'
 
-const OUTLINE_TOOL = {
-  name: 'record_detail_outline',
-  description: '상세페이지의 전체 뼈대(헤드라인·섹션 계획·FAQ·키워드·디자이너 메모)를 기록한다. 섹션 본문은 쓰지 않는다.',
+// 상세페이지 5단 구성. 각 섹션의 범위가 겹치지 않도록 역할을 명확히 나눈다.
+export const SECTION_BLUEPRINT = [
+  {
+    key: 'hook',
+    role: '타깃 고객이 실제로 겪는 상황과 불편에 공감하는 도입부. 아직 제품의 특징·성분을 말하지 말고, 읽는 사람이 "내 이야기"라고 느끼게 쓴다.',
+  },
+  {
+    key: 'solution',
+    role: '그 문제에 대한 답으로 제품을 처음 소개. 이 제품이 다른 선택지와 다른 지점 한 가지를 중심으로 쓴다. 세부 스펙 나열은 다음 섹션에 맡긴다.',
+  },
+  {
+    key: 'feature',
+    role: '제품의 구체적인 특징·원료·제조 방식을 사실 위주로 설명. 입력에 있는 정보만 쓰고, 없는 수치나 인증은 지어내지 않는다.',
+  },
+  {
+    key: 'trust',
+    role: '믿고 살 수 있는 근거(원산지·제조 방식·포장 형태 등 입력에 있는 사실). 근거가 부족하면 실제 사용 상황을 구체적으로 그려 신뢰를 만든다.',
+  },
+  {
+    key: 'guide',
+    role: '구성·보관 방법·사용(섭취) 방법과 구매 전 확인 사항 안내. 과장 없이 담백하게 정리한다.',
+  },
+]
+
+const SECTION_TOOL = {
+  name: 'record_section',
+  description: '지정된 역할을 맡은 상세페이지 섹션 하나를 제목·본문·이미지 지시까지 작성해 기록한다.',
   input_schema: {
     type: 'object',
-    required: ['headline', 'subheadline', 'section_plan', 'faq', 'keywords', 'designer_notes'],
+    required: ['title', 'body', 'image_brief'],
+    properties: {
+      title: { type: 'string', description: '이 섹션의 제목 (한 줄, 고객의 언어로)' },
+      body: { type: 'string', description: '섹션 본문 카피 (2~4문장)' },
+      bullets: { type: 'array', items: { type: 'string' }, description: '요점 불릿 2~3개 (선택)' },
+      image_brief: { type: 'string', description: '디자이너에게 전달할 이 섹션의 이미지 연출 지시 (한 줄)' },
+    },
+  },
+}
+
+const FRAME_TOOL = {
+  name: 'record_detail_frame',
+  description: '상세페이지의 헤드라인·FAQ·검색 키워드·디자이너 인계 메모를 기록한다. 본문 섹션은 쓰지 않는다.',
+  input_schema: {
+    type: 'object',
+    required: ['headline', 'subheadline', 'faq', 'keywords', 'designer_notes'],
     properties: {
       headline: { type: 'string', description: '상세페이지 최상단 후킹 헤드라인 (한 줄)' },
       subheadline: { type: 'string', description: '헤드라인을 보조하는 한 줄' },
-      section_plan: {
-        type: 'array',
-        description:
-          '본문 섹션 계획 4~5개. 문제 공감 → 해결(제품) → 핵심 특징 → 신뢰 요소 → 구매 안내 순서. 각 섹션의 역할이 겹치지 않게 나눈다.',
-        items: {
-          type: 'object',
-          required: ['title', 'role', 'image_brief'],
-          properties: {
-            title: { type: 'string', description: '섹션 제목' },
-            role: {
-              type: 'string',
-              description: '이 섹션이 맡을 내용 범위를 한 줄로. 다른 섹션과 겹치지 않게 구체적으로.',
-            },
-            image_brief: { type: 'string', description: '디자이너에게 전달할 이 섹션의 이미지 연출 지시 (한 줄)' },
-          },
-        },
-      },
       faq: {
         type: 'array',
         description: '자주 묻는 질문 2~3개',
@@ -53,142 +79,139 @@ const OUTLINE_TOOL = {
   },
 }
 
-const SECTION_TOOL = {
-  name: 'record_section_body',
-  description: '지정된 상세페이지 섹션 하나의 본문 카피를 작성해 기록한다.',
-  input_schema: {
-    type: 'object',
-    required: ['body'],
-    properties: {
-      body: { type: 'string', description: '섹션 본문 카피 (2~4문장)' },
-      bullets: { type: 'array', items: { type: 'string' }, description: '요점 불릿 2~3개 (선택)' },
-    },
-  },
+// 전체 구성표 — 모든 호출에 공통으로 붙여, 서로를 보지 못해도 역할이 겹치지 않게 한다.
+function blueprintOverview() {
+  return SECTION_BLUEPRINT.map((s, i) => `${i + 1}. ${s.role}`).join('\n')
 }
 
-// 섹션 본문 호출에 넘길 맥락.
-// 다른 섹션의 제목·역할을 함께 주어, 병렬로 써도 내용이 겹치지 않게 한다.
-function sectionUserContent(productBlock, outline, index) {
-  const me = outline.section_plan[index]
-  const others = outline.section_plan
-    .map((s, i) => (i === index ? null : `- ${s.title}: ${s.role}`))
+function sectionUserContent(productBlock, index) {
+  const others = SECTION_BLUEPRINT.map((s, i) => (i === index ? null : `${i + 1}. ${s.role}`))
     .filter(Boolean)
     .join('\n')
 
   return `[제품 정보]
 ${productBlock}
 
-[상세페이지 전체 방향]
-헤드라인: ${outline.headline}
-보조 문구: ${outline.subheadline}
-톤앤매너: ${outline.designer_notes}
+[상세페이지 전체 구성 — 이 중 한 섹션만 맡습니다]
+${blueprintOverview()}
 
-[다른 섹션이 이미 맡은 내용 — 겹쳐 쓰지 마세요]
-${others || '(없음)'}
+[다른 섹션이 맡은 범위 — 겹쳐 쓰지 마세요]
+${others}
 
-[지금 쓸 섹션]
-제목: ${me.title}
-이 섹션이 맡은 범위: ${me.role}
+[지금 쓸 섹션: ${index + 1}번]
+${SECTION_BLUEPRINT[index].role}
 
-이 섹션의 본문만 쓰세요. 제목은 다시 쓰지 말고, 다른 섹션이 맡은 내용은 반복하지 마세요.`
+이 섹션의 제목·본문·이미지 연출 지시만 쓰세요. 다른 섹션이 맡은 내용은 반복하지 마세요.`
+}
+
+function frameUserContent(productBlock) {
+  return `[제품 정보]
+${productBlock}
+
+[본문 섹션 구성 — 다른 작업자가 동시에 쓰고 있습니다]
+${blueprintOverview()}
+
+위 구성으로 본문이 채워진다는 전제로, 페이지 최상단 헤드라인과 FAQ·검색 키워드·디자이너 인계 메모를 작성하세요. 본문 섹션은 쓰지 마세요.`
 }
 
 const MIN_SECTIONS = 2
 
-// 상세페이지를 2단계로 생성한다.
-// 반환: { result, usage, degraded } — degraded는 일부 섹션이 실패해 빠졌을 때의 안내 문구.
-export async function generateDetail(env, { system, productBlock, outlineTimeoutMs = 55000, sectionTimeoutMs = 40000 }) {
-  const t0 = Date.now()
-  const { input: outline, usage: outlineUsage } = await callClaudeTool(env, {
-    system,
-    user: `[제품 정보]\n${productBlock}\n\n이 제품의 상세페이지 뼈대를 설계하세요. 섹션 본문은 쓰지 말고 계획만 세우세요.`,
-    tool: OUTLINE_TOOL,
-    maxTokens: 2048,
-    timeoutMs: outlineTimeoutMs,
-  })
+// 상세페이지를 한 번에 병렬로 생성한다.
+// 반환: { result, usage, degraded, timing }
+export async function generateDetail(env, { system, productBlock, timeoutMs = 60000 }) {
+  const started = Date.now()
+  const elapsed = Array.from({ length: SECTION_BLUEPRINT.length + 1 }, () => 0)
 
-  const plan = Array.isArray(outline.section_plan)
-    ? outline.section_plan.filter((s) => s && typeof s.title === 'string' && s.title.trim())
-    : []
-  if (plan.length === 0) throw failure('contract', 'AI 응답이 불완전합니다(섹션 계획 누락). 다시 시도해주세요.')
-  outline.section_plan = plan
-
-  const outlineMs = Date.now() - t0
-  const t1 = Date.now()
-
-  // 섹션 본문을 동시에 생성한다 — 전체 시간이 "합"이 아니라 "가장 느린 하나"가 된다.
-  // 한 섹션이 실패해도 페이지 전체를 버리지 않는다(예전 구조에서는 그랬다).
-  // 각 호출의 개별 소요시간도 재둔다: 합계와 최대값이 비슷하다면 병렬이 실제로는
-  // 직렬로 돌고 있다는 뜻이고, 그건 구조가 아니라 실행 환경의 문제다.
-  const sectionMs = new Array(plan.length).fill(0)
-  const settled = await Promise.allSettled(
-    plan.map((_, i) => {
-      const s = Date.now()
-      return callClaudeTool(env, {
-        system,
-        user: sectionUserContent(productBlock, outline, i),
-        tool: SECTION_TOOL,
-        maxTokens: 1024,
-        timeoutMs: sectionTimeoutMs,
-      }).finally(() => {
-        sectionMs[i] = Date.now() - s
-      })
+  const track = (i, promise) => {
+    const s = Date.now()
+    return promise.finally(() => {
+      elapsed[i] = Date.now() - s
     })
-  )
+  }
 
-  const sectionsMs = Date.now() - t1
+  // 프레임(헤드라인·FAQ·키워드·메모)과 섹션 5개를 t=0에 함께 띄운다.
+  // 어느 것도 다른 것의 결과를 기다리지 않는다 — 그게 이 구조의 핵심이다.
+  const jobs = [
+    track(
+      0,
+      callClaudeTool(env, {
+        system,
+        user: frameUserContent(productBlock),
+        tool: FRAME_TOOL,
+        maxTokens: 1536,
+        timeoutMs,
+      })
+    ),
+    ...SECTION_BLUEPRINT.map((_, i) =>
+      track(
+        i + 1,
+        callClaudeTool(env, {
+          system,
+          user: sectionUserContent(productBlock, i),
+          tool: SECTION_TOOL,
+          maxTokens: 1024,
+          timeoutMs,
+        })
+      )
+    ),
+  ]
+
+  const settled = await Promise.allSettled(jobs)
+  const [frameResult, ...sectionResults] = settled
+
+  // 헤드라인이 없으면 상세페이지라고 부를 수 없다 — 프레임 실패는 강등 사유다.
+  if (frameResult.status !== 'fulfilled' || typeof frameResult.value.input?.headline !== 'string') {
+    throw frameResult.status === 'rejected'
+      ? frameResult.reason
+      : failure('contract', 'AI 응답이 불완전합니다(헤드라인 누락). 다시 시도해주세요.')
+  }
+  const frame = frameResult.value.input
 
   const sections = []
-  let sectionUsage = { input_tokens: 0, output_tokens: 0 }
   let failed = 0
+  let inputTokens = frameResult.value.usage?.input_tokens || 0
+  let outputTokens = frameResult.value.usage?.output_tokens || 0
 
-  settled.forEach((r, i) => {
-    if (r.status !== 'fulfilled' || typeof r.value.input?.body !== 'string' || !r.value.input.body.trim()) {
+  sectionResults.forEach((r) => {
+    const got = r.status === 'fulfilled' ? r.value.input : null
+    if (!got || typeof got.body !== 'string' || !got.body.trim() || !String(got.title || '').trim()) {
       failed += 1
       return
     }
-    const { body, bullets } = r.value.input
     sections.push({
-      title: plan[i].title,
-      body: body.trim(),
-      bullets: Array.isArray(bullets) ? bullets.filter((b) => typeof b === 'string' && b.trim()) : [],
-      image_brief: plan[i].image_brief || '',
+      title: got.title.trim(),
+      body: got.body.trim(),
+      bullets: Array.isArray(got.bullets) ? got.bullets.filter((b) => typeof b === 'string' && b.trim()) : [],
+      image_brief: String(got.image_brief || '').trim(),
     })
-    if (r.value.usage) {
-      sectionUsage = {
-        input_tokens: sectionUsage.input_tokens + (r.value.usage.input_tokens || 0),
-        output_tokens: sectionUsage.output_tokens + (r.value.usage.output_tokens || 0),
-      }
-    }
+    inputTokens += r.value.usage?.input_tokens || 0
+    outputTokens += r.value.usage?.output_tokens || 0
   })
 
   // 남은 섹션이 너무 적으면 상세페이지 구실을 못 한다 — 이때만 예시 결과로 강등한다.
   if (sections.length < MIN_SECTIONS) {
-    throw failure('section_failed', `섹션 생성에 실패했습니다(${failed}/${plan.length}). 다시 시도해주세요.`)
+    throw failure('section_failed', `섹션 생성에 실패했습니다(${failed}/${SECTION_BLUEPRINT.length}). 다시 시도해주세요.`)
   }
 
   return {
     result: {
-      headline: outline.headline,
-      subheadline: outline.subheadline,
+      headline: frame.headline,
+      subheadline: frame.subheadline,
       sections,
-      faq: outline.faq,
-      keywords: outline.keywords,
-      designer_notes: outline.designer_notes,
+      faq: frame.faq,
+      keywords: frame.keywords,
+      designer_notes: frame.designer_notes,
     },
-    usage: {
-      input_tokens: (outlineUsage?.input_tokens || 0) + sectionUsage.input_tokens,
-      output_tokens: (outlineUsage?.output_tokens || 0) + sectionUsage.output_tokens,
-    },
+    usage: { input_tokens: inputTokens, output_tokens: outputTokens },
     degraded: failed
       ? `섹션 ${failed}개는 생성이 지연되어 빠졌습니다. 나머지 ${sections.length}개 섹션은 정상 생성되었습니다.`
       : null,
     timing: {
-      outline_ms: outlineMs,
-      sections_ms: sectionsMs,
-      section_max_ms: Math.max(0, ...sectionMs),
-      section_sum_ms: sectionMs.reduce((a, b) => a + b, 0),
-      section_count: plan.length,
+      total_ms: Date.now() - started,
+      // 개별 호출 시간의 합 — 예전 구조였다면 걸렸을 시간이다. total과의 차이가 병렬로 번 시간.
+      serial_ms: elapsed.reduce((a, b) => a + b, 0),
+      slowest_ms: Math.max(0, ...elapsed),
+      calls: elapsed.length,
     },
   }
 }
