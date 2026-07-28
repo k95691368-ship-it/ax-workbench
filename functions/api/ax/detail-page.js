@@ -1,5 +1,5 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
-import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
@@ -156,11 +156,19 @@ export async function onRequestPost(context) {
     return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: budgetNotice(budget) })
   }
 
+  // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다
+  const limited = async (bucket, max, opts) => !(await checkRateLimit(env, bucket, max, 3600, opts))
   const ip = clientIp(request)
-  if (!(await checkRateLimit(env, `ax:detail:${ip}`, 8, 3600)))
-    return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'ax:detail:all', 60, 3600, { failOpen: false })))
-    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+  const rateNotice = (await limited(`ax:detail:${ip}`, 8))
+    ? RATE_NOTICE.ip
+    : (await limited('ax:detail:all', 60, { failOpen: false }))
+      ? RATE_NOTICE.all
+      : null
+  if (rateNotice) {
+    const demo = demoResult(input)
+    logCall(context, { endpoint: 'detail-page', mode: 'demo', startedAt, reason: 'rate_limit' })
+    return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: rateNotice })
+  }
 
   const system = SYSTEM + brandPrompt(brand)
 

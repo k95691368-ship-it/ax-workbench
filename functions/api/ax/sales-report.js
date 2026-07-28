@@ -1,5 +1,5 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
-import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, failureCode } from '../../_lib/claude.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
@@ -98,11 +98,18 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400)))
     return json({ ...demoResult(compact), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
 
+  // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다
+  const limited = async (bucket, max, opts) => !(await checkRateLimit(env, bucket, max, 3600, opts))
   const ip = clientIp(request)
-  if (!(await checkRateLimit(env, `ax:sales:${ip}`, 10, 3600)))
-    return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'ax:sales:all', 80, 3600)))
-    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+  const rateNotice = (await limited(`ax:sales:${ip}`, 10))
+    ? RATE_NOTICE.ip
+    : (await limited('ax:sales:all', 80))
+      ? RATE_NOTICE.all
+      : null
+  if (rateNotice) {
+    logCall(context, { endpoint: 'sales-report', mode: 'demo', startedAt, reason: 'rate_limit' })
+    return json({ ...demoResult(compact), notice: rateNotice })
+  }
 
   // 상품명·채널명은 고객사가 올린 CSV에서 그대로 온다 — 지시문을 심어 둘 수 있는 자리다
   const injected = injectionNotice(

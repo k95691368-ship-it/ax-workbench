@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { callClaudeTool, ensureContract } from '../functions/_lib/claude.js'
-import { checkRateLimit } from '../functions/_lib/rateLimit.js'
+import { checkRateLimit, RATE_NOTICE } from '../functions/_lib/rateLimit.js'
 
 const ENV = { CLAUDE_API_KEY: 'test-key' }
 const TOOL = { name: 'record_test', input_schema: { type: 'object' } }
@@ -120,5 +120,18 @@ describe('checkRateLimit', () => {
 
   it('DB 바인딩이 없으면 제한 없이 통과한다', async () => {
     expect(await checkRateLimit({}, 'b', 5, 60)).toBe(true)
+  })
+})
+
+describe('한도 안내 문구 (에러 벽 대신 예시 결과로 강등)', () => {
+  it('IP 한도와 전체 한도의 안내가 서로 다르다', () => {
+    expect(RATE_NOTICE.ip).not.toBe(RATE_NOTICE.all)
+  })
+
+  it('두 안내 모두 예시 결과임을 알리고 다시 시도할 길을 남긴다', () => {
+    for (const notice of [RATE_NOTICE.ip, RATE_NOTICE.all]) {
+      expect(notice).toContain('예시 결과')
+      expect(notice).toContain('다시 시도')
+    }
   })
 })

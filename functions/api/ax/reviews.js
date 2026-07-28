@@ -1,5 +1,5 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
-import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES, failureCode } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
@@ -281,11 +281,19 @@ export async function onRequestPost(context) {
     return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: budgetNotice(budget) })
   }
 
+  // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다
+  const limited = async (bucket, max, opts) => !(await checkRateLimit(env, bucket, max, 3600, opts))
   const ip = clientIp(request)
-  if (!(await checkRateLimit(env, `ax:reviews:${ip}`, 6, 3600)))
-    return errorJson('리뷰 일괄 처리는 시간당 6회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'ax:reviews:all', 40, 3600, { failOpen: false })))
-    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+  const rateNotice = (await limited(`ax:reviews:${ip}`, 6))
+    ? RATE_NOTICE.ip
+    : (await limited('ax:reviews:all', 40, { failOpen: false }))
+      ? RATE_NOTICE.all
+      : null
+  if (rateNotice) {
+    const demo = demoResult(reviews, fixes)
+    logCall(context, { endpoint: 'reviews', mode: 'demo', startedAt, reason: 'rate_limit' })
+    return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: rateNotice })
+  }
 
   try {
     const { input: result, usage } = await callClaudeTool(env, {
