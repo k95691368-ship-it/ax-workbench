@@ -9,6 +9,7 @@ import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js
 import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
 import { normalizeDetail } from '../../_lib/shape.js'
+import { generateDetail } from '../../_lib/detailPipeline.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
 
 function detailTexts(result) {
@@ -204,24 +205,45 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, 'ax:detail:all', 60, 3600, { failOpen: false })))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
+  const system = SYSTEM + brandPrompt(brand)
+
   try {
-    const { input: result, usage } = await callClaudeTool(env, {
-      system: SYSTEM + brandPrompt(brand),
-      user: userContent,
-      tool: TOOL,
-      maxTokens: 4096,
-      timeoutMs: 75000,
-    })
-    ensureContract(result, {
-      arrays: ['sections', 'faq', 'keywords'],
-      strings: ['headline', 'subheadline', 'designer_notes'],
-    })
+    // 피드백 반영은 이전 결과 전체를 놓고 고치는 작업이라 한 번에 봐야 한다 — 기존 단일 호출을 쓴다.
+    // 최초 생성은 2단계 파이프라인(개요 → 섹션 병렬)으로 만든다: 실측 37초의 원인이 구조였다.
+    let result
+    let usage
+    let degraded = null
+
+    if (previous) {
+      const single = await callClaudeTool(env, {
+        system,
+        user: userContent,
+        tool: TOOL,
+        maxTokens: 4096,
+        timeoutMs: 75000,
+      })
+      result = single.input
+      usage = single.usage
+      ensureContract(result, {
+        arrays: ['sections', 'faq', 'keywords'],
+        strings: ['headline', 'subheadline', 'designer_notes'],
+      })
+    } else {
+      const built = await generateDetail(env, {
+        system,
+        productBlock: userDataJson('제품 정보', input),
+      })
+      result = built.result
+      usage = built.usage
+      degraded = built.degraded
+    }
+
     // 중첩 항목까지 모양을 맞춘다 — 최상위 키만 보면 sections[].body 누락을 놓친다
     const shaped = normalizeDetail(result)
     const adCheck = adCheckDetail(shaped, brand)
     const factCheck = checkClaims(detailTexts(shaped), [input.name, input.category, input.features, input.target])
     logCall(context, { endpoint: 'detail-page', mode: 'live', startedAt, usage, findingsCount: adCheck.length + factCheck.length })
-    return json({ demo: false, usage, ad_check: adCheck, fact_check: factCheck, input_warning: injected, ...brandMeta(shaped, brand), ...shaped })
+    return json({ demo: false, usage, ad_check: adCheck, fact_check: factCheck, input_warning: injected, notice: degraded, ...brandMeta(shaped, brand), ...shaped })
   } catch (err) {
     // 외부 AI 장애/지연 시에도 빈 에러 화면 대신 예시 결과로 응답한다
     const demo = demoResult(input)
