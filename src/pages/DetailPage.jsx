@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { DP_THEMES, getTheme, orbStyle, makeCustomTheme, fileToResizedDataUrl } from '../lib/themes.js'
@@ -9,6 +9,7 @@ import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components
 import GenProgress from '../components/GenProgress.jsx'
 import FixViolations from '../components/FixViolations.jsx'
 import { violationSummary } from '../lib/fixViolations.js'
+import { pushHistory } from '../lib/history.js'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
 
@@ -41,6 +42,17 @@ export default function DetailPage() {
   const resultRef = useRef(null)
   const imgInputRef = useRef(null)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // 생성 이력에서 "그때 결과 불러오기"로 들어온 경우 입력·결과를 그대로 복원한다
+  useEffect(() => {
+    const entry = location.state?.restore
+    if (!entry?.result) return
+    if (entry.input) setForm(entry.input)
+    setVersions([entry.result])
+    setActiveVer(0)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
 
   const result = versions[activeVer] || null
   const theme = themeId === 'custom' && customImage ? makeCustomTheme(customImage) : getTheme(themeId)
@@ -95,6 +107,7 @@ export default function DetailPage() {
       setVersions([data])
       setActiveVer(0)
       setFeedback('')
+      pushHistory({ feature: 'detail', label: form.name, input: form, result: data })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
@@ -129,6 +142,7 @@ export default function DetailPage() {
         return next
       })
       setFeedback('')
+      pushHistory({ feature: 'detail', label: `${form.name} — 수정본`, input: form, result: data })
     } catch (err) {
       setError(err.message)
     } finally {

@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { scanText, BANNED_RULES } from '../lib/compliance.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { pushHistory } from '../lib/history.js'
 
 const SAMPLE_RISKY_COPY =
   '변비 치료에 즉시 효과! 국내 1위 유일한 유산균으로 장 질병 예방과 디톡스, 독소 배출까지 한 번에. 100% 효과 보장!'
@@ -49,6 +50,17 @@ export default function ListingPage() {
   const [copyText, setCopyText] = useState(SAMPLE_RISKY_COPY)
   const [copiedTitle, setCopiedTitle] = useState('')
 
+  const navigate = useNavigate()
+
+  // 생성 이력에서 복원
+  useEffect(() => {
+    const entry = location.state?.restore
+    if (!entry?.result) return
+    if (entry.input) setForm(entry.input)
+    setResult(entry.result)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
+
   const findings = useMemo(() => scanText(copyText), [copyText])
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -69,6 +81,7 @@ export default function ListingPage() {
         if (!Array.isArray(data[key])) data[key] = []
       }
       setResult(data)
+      pushHistory({ feature: 'listing', label: form.name, input: form, result: data })
     } catch (err) {
       setError(err.message)
     } finally {

@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
@@ -8,6 +8,7 @@ import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components
 import GenProgress from '../components/GenProgress.jsx'
 import FixViolations from '../components/FixViolations.jsx'
 import { mergeViolations } from '../lib/fixViolations.js'
+import { pushHistory } from '../lib/history.js'
 
 const GEN_STEPS = [
   '제품 정보를 분석하고 있어요',
@@ -36,8 +37,21 @@ export default function ContentPage() {
   const [activeTab, setActiveTab] = useState('')
   const [copied, setCopied] = useState('')
   const resultRef = useRef(null)
+  const navigate = useNavigate()
 
   const result = versions[activeVer] || null
+
+  // 생성 이력에서 복원
+  useEffect(() => {
+    const entry = location.state?.restore
+    if (!entry?.result) return
+    if (entry.input?.product) setProduct(entry.input.product)
+    if (Array.isArray(entry.input?.channels)) setSelected(entry.input.channels)
+    setVersions([entry.result])
+    setActiveVer(0)
+    setActiveTab(entry.result.results?.[0]?.channel || '')
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
 
   const set = (key) => (e) => setProduct((p) => ({ ...p, [key]: e.target.value }))
 
@@ -60,6 +74,12 @@ export default function ContentPage() {
       setActiveVer(0)
       setFeedback('')
       setActiveTab(data.results[0]?.channel || '')
+      pushHistory({
+        feature: 'content',
+        label: `${product.name} — ${selected.length}개 채널`,
+        input: { product, channels: selected },
+        result: data,
+      })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)

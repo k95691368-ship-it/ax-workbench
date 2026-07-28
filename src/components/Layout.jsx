@@ -11,6 +11,7 @@ const MENU = [
   { to: '/reviews', label: '리뷰 응대' },
   { to: '/sales', label: '매출 리포트' },
   { to: '/brand', label: '브랜드 룰북' },
+  { to: '/history', label: '이력' },
   { to: '/edu', label: 'AI 교육' },
   { to: '/about', label: '제작기' },
 ]
@@ -57,6 +58,7 @@ export default function Layout() {
             <Link to="/reviews">리뷰 자동 응대</Link>
             <Link to="/sales">매출 리포트 자동화</Link>
             <Link to="/brand">브랜드 룰북</Link>
+            <Link to="/history">생성 이력</Link>
             <Link to="/edu">직원 AI 교육 가이드</Link>
           </div>
           <div className="footer-col">

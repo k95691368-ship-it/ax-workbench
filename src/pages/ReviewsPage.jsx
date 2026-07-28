@@ -1,8 +1,10 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import { pushHistory } from '../lib/history.js'
 
 const GEN_STEPS = [
   '리뷰를 유형별로 분류하고 있어요',
@@ -32,6 +34,17 @@ export default function ReviewsPage() {
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState('')
   const resultRef = useRef(null)
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // 생성 이력에서 복원
+  useEffect(() => {
+    const entry = location.state?.restore
+    if (!entry?.result) return
+    if (typeof entry.input === 'string') setText(entry.input)
+    setResult(entry.result)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
 
   const reviews = useMemo(
     () => text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 8),
@@ -50,6 +63,12 @@ export default function ReviewsPage() {
       const data = await postJson('/api/ax/reviews', { reviews })
       data.results = Array.isArray(data.results) ? data.results : []
       setResult(data)
+      pushHistory({
+        feature: 'reviews',
+        label: `리뷰 ${reviews.length}건 응대`,
+        input: text,
+        result: data,
+      })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
@@ -113,7 +132,7 @@ export default function ReviewsPage() {
               <ResultNotice text={result.notice} />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
-                <BrandBadge applied={result.brand_applied} />
+                <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
                 <UsageNote usage={result.usage} />
               </div>
 
@@ -152,6 +171,16 @@ export default function ReviewsPage() {
                     <p className="review-reply">{r.reply}</p>
                     {r.escalate && r.escalate_reason && (
                       <p className="escalate-reason">에스컬레이션 사유: {r.escalate_reason}</p>
+                    )}
+                    {r.brand_missing?.length > 0 && (
+                      <p className="review-brand-missing">
+                        룰북 필수 문구 누락: {r.brand_missing.join(', ')}
+                      </p>
+                    )}
+                    {r.ad_check?.length > 0 && (
+                      <p className="review-brand-missing">
+                        점검 주의: {r.ad_check.map((f) => `${f.word}(${f.label})`).join(', ')}
+                      </p>
                     )}
                   </article>
                 ))}

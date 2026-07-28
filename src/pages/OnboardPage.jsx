@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import { getTheme } from '../lib/themes.js'
 import { buildHtml, buildBrief, downloadFile, safeFileName } from '../lib/detailHtml.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { pushHistory } from '../lib/history.js'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
 
@@ -26,6 +28,23 @@ export default function OnboardPage() {
   const [running, setRunning] = useState(false)
   const [done, setDone] = useState(false)
   const resultRef = useRef(null)
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // 생성 이력에서 복원 — 세 레인의 결과를 완료 상태로 되살린다
+  useEffect(() => {
+    const entry = location.state?.restore
+    const r = entry?.result
+    if (!r) return
+    if (entry.input) setForm(entry.input)
+    setTasks({
+      detail: r.detail ? { status: 'done', data: r.detail } : { status: 'idle' },
+      listing: r.listing ? { status: 'done', data: r.listing } : { status: 'idle' },
+      content: r.content ? { status: 'done', data: r.content } : { status: 'idle' },
+    })
+    setDone(true)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -47,8 +66,14 @@ export default function OnboardPage() {
     // 각 작업이 끝나는 대로 해당 레인만 갱신 — 하나가 느려도 나머지는 먼저 보인다
     const start = (id, promise) =>
       promise
-        .then((data) => setTasks((t) => ({ ...t, [id]: { status: 'done', data } })))
-        .catch((err) => setTasks((t) => ({ ...t, [id]: { status: 'error', error: err.message } })))
+        .then((data) => {
+          setTasks((t) => ({ ...t, [id]: { status: 'done', data } }))
+          return data
+        })
+        .catch((err) => {
+          setTasks((t) => ({ ...t, [id]: { status: 'error', error: err.message } }))
+          return null
+        })
 
     const jobs = [
       start('detail', postJson('/api/ax/detail-page', form)),
@@ -60,9 +85,32 @@ export default function OnboardPage() {
     ]
 
     requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-    await Promise.all(jobs)
+    const [d, l, c] = await Promise.all(jobs)
     setRunning(false)
     setDone(true)
+
+    // 세 결과를 한 묶음으로 이력에 남긴다 (되돌리면 세 레인이 함께 복원된다)
+    if (d || l || c) {
+      const usage = [d?.usage, l?.usage, c?.usage].filter(Boolean).reduce(
+        (acc, u) => ({
+          input_tokens: acc.input_tokens + (u.input_tokens || 0),
+          output_tokens: acc.output_tokens + (u.output_tokens || 0),
+        }),
+        { input_tokens: 0, output_tokens: 0 }
+      )
+      pushHistory({
+        feature: 'onboard',
+        label: form.name,
+        input: form,
+        result: {
+          detail: d || null,
+          listing: l || null,
+          content: c || null,
+          demo: Boolean(d?.demo || l?.demo || c?.demo),
+          usage,
+        },
+      })
+    }
   }
 
   // 세 결과의 금칙어 검출을 한데 모은다 (사람이 확인할 항목)

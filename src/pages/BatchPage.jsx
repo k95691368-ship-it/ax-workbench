@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import { parseProducts, rowsToProducts, productsToText, BATCH_MAX } from '../lib/batchParse.js'
 import { readTabularFile, TABULAR_ACCEPT } from '../lib/tabular.js'
+import { pushHistory } from '../lib/history.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
@@ -36,6 +38,17 @@ export default function BatchPage() {
   const [dragOver, setDragOver] = useState(false)
   const resultRef = useRef(null)
   const fileRef = useRef(null)
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // 생성 이력에서 복원
+  useEffect(() => {
+    const entry = location.state?.restore
+    if (!entry?.result) return
+    if (typeof entry.input === 'string') setText(entry.input)
+    setResult(entry.result)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
 
   const parsed = useMemo(() => parseProducts(text), [text])
 
@@ -97,6 +110,12 @@ export default function BatchPage() {
       const data = await postJson('/api/ax/batch-listing', { products: parsed.products })
       data.results = Array.isArray(data.results) ? data.results : []
       setResult(data)
+      pushHistory({
+        feature: 'batch',
+        label: `${parsed.products.length}개 상품 (${parsed.products[0]?.name || ''} 외)`,
+        input: text,
+        result: data,
+      })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
