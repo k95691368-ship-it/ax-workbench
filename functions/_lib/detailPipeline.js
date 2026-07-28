@@ -128,6 +128,14 @@ const REVISE_SECTION_TOOL = {
 
 const REVISE_GUIDE = `피드백이 요구한 방향은 확실하게 반영하고, 피드백과 무관하게 잘된 부분(사실 정보·구조)은 그대로 두세요. 디자인 방향에 대한 피드백이면 이미지 연출 지시에도 반영하세요.`
 
+// 호출당 max_tokens.
+// 쪼갠 뒤 각 호출의 산출물이 작아졌다고 한도까지 같이 줄였더니, 라이브 재생성에서
+// 프레임 호출이 잘려 실패했다. Opus 5는 적응형 사고 토큰도 max_tokens를 함께 쓰기 때문에
+// "산출물 길이"만 보고 한도를 잡으면 안 된다. 실제 청구는 생성한 만큼만 되므로
+// 한도는 넉넉히 두고, 길이 제어는 프롬프트(2~4문장 등)에 맡긴다.
+const FRAME_MAX_TOKENS = 3000
+const SECTION_MAX_TOKENS = 2400
+
 const MIN_SECTIONS = 2
 
 // 상세페이지를 한 번에 병렬로 생성한다.
@@ -152,7 +160,7 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
         system,
         user: frameUserContent(productBlock),
         tool: FRAME_TOOL,
-        maxTokens: 1536,
+        maxTokens: FRAME_MAX_TOKENS,
         timeoutMs,
       })
     ),
@@ -163,7 +171,7 @@ export async function generateDetail(env, { system, productBlock, timeoutMs = 60
           system,
           user: sectionUserContent(productBlock, i),
           tool: SECTION_TOOL,
-          maxTokens: 1024,
+          maxTokens: SECTION_MAX_TOKENS,
           timeoutMs,
         })
       )
@@ -276,7 +284,7 @@ ${feedback}
 
 ${REVISE_GUIDE} 본문 섹션은 쓰지 마세요.`,
       tool: REVISE_FRAME_TOOL,
-      maxTokens: 1536,
+      maxTokens: FRAME_MAX_TOKENS,
       timeoutMs,
     })
   )
@@ -300,7 +308,7 @@ ${feedback}
 
 ${REVISE_GUIDE} 이 섹션만 다시 쓰고, 다른 섹션이 맡은 내용은 가져오지 마세요.`,
         tool: REVISE_SECTION_TOOL,
-        maxTokens: 1024,
+        maxTokens: SECTION_MAX_TOKENS,
         timeoutMs,
       })
     )
