@@ -104,7 +104,7 @@ export async function onRequestPost(context) {
       system: SYSTEM,
       user: `[판매 데이터 집계]\n${JSON.stringify(compact, null, 2)}`,
       tool: TOOL,
-      maxTokens: 2048,
+      maxTokens: 4096,
     })
     ensureContract(result, {
       arrays: ['insights', 'actions', 'risks'],

@@ -23,6 +23,9 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
+        // Opus 5는 적응형 사고가 기본 활성이라 사고 토큰이 max_tokens를 함께 소비한다.
+        // 구조화 JSON 생성은 정형 작업이므로 effort를 medium으로 낮춰 지연·비용을 억제한다.
+        output_config: { effort: 'medium' },
         system,
         messages: [{ role: 'user', content: user }],
         tools: [tool],
