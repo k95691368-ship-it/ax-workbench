@@ -275,3 +275,28 @@ describe('필수 표기 문구 배치 — 페이지에 한 번만', () => {
     expect(systems.filter((s) => s === '필수포함')).toHaveLength(1)
   })
 })
+
+describe('구성표 역할 분리 (같은 내용을 두 섹션이 되풀이하지 않게)', () => {
+  it('제품 사실을 맡는 섹션과 안심시키는 섹션이 서로 다른 일을 한다', () => {
+    const feature = SECTION_BLUEPRINT.find((s) => s.key === 'feature').role
+    const trust = SECTION_BLUEPRINT.find((s) => s.key === 'trust').role
+    // 라이브에서 이 둘이 같은 사실을 되풀이했다 — 역할 문구에 "제조 방식"이 겹쳐 있었다
+    expect(feature).toContain('제조 방식')
+    expect(trust).not.toContain('원산지')
+    expect(trust).toContain('다시 설명하지 말고')
+  })
+
+  it('프레임 호출에 FAQ가 본문을 되묻지 말라는 지시가 들어간다', async () => {
+    let framePrompt = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const payload = JSON.parse(init.body)
+        if (payload.tools[0].name === 'record_detail_frame') framePrompt = payload.messages[0].content
+        return apiResponse(payload.tools[0].name === 'record_detail_frame' ? FRAME : section(0))
+      })
+    )
+    await generateDetail(ENV, CALL)
+    expect(framePrompt).toContain('되묻지 마세요')
+  })
+})
