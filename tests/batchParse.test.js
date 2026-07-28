@@ -16,7 +16,7 @@ describe('parseProducts (대량 등록 입력 파서)', () => {
   })
 
   it(`최대 ${BATCH_MAX}개까지만 처리하고 초과분을 알려준다`, () => {
-    const lines = Array.from({ length: 8 }, (_, i) => `상품 ${i + 1}`).join('\n')
+    const lines = Array.from({ length: BATCH_MAX + 3 }, (_, i) => `상품 ${i + 1}`).join('\n')
     const { products, overflow } = parseProducts(lines)
     expect(products).toHaveLength(BATCH_MAX)
     expect(overflow).toBe(3)

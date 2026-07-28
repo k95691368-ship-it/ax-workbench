@@ -1,7 +1,7 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
-import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
+import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES, failure } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
@@ -10,7 +10,22 @@ import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../.
 import { failureCode } from '../../_lib/claude.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
 
-const MAX_PRODUCTS = 5
+// 한 번에 처리하는 상품 수.
+//
+// 예전에는 5개였다. 상품 전부를 한 호출에 담아야 했기 때문이다 — 더 넣으면 응답이 길어져
+// 잘리거나 타임아웃이 났다. 즉 "대량 등록"이라는 이름과 달리 실무의 대량과는 거리가 있었다.
+//
+// 상세페이지에서 검증한 병렬 구조를 그대로 쓴다: 상품을 CHUNK_SIZE개씩 묶어 **동시에** 보낸다.
+// 20개를 처리해도 걸리는 시간은 "가장 느린 묶음 하나"라 5개일 때와 큰 차이가 없다.
+// 한 묶음이 실패해도 그 묶음만 예시 결과로 채우고 나머지는 그대로 살린다.
+export const MAX_PRODUCTS = 20
+export const CHUNK_SIZE = 5
+
+export function chunk(items, size = CHUNK_SIZE) {
+  const out = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
 
 const TOOL = {
   name: 'record_batch_listing',
@@ -104,6 +119,94 @@ ${userDataJson('상품 목록', products)}
 - previous를 그대로 되풀이하지 마세요. 검색 노출에 유리한 다른 키워드 조합을 찾으세요.`
 }
 
+// 한 묶음의 응답을 화면이 기대하는 모양으로 맞춘다.
+// input_name은 화면의 행 식별자이자 재생성 대상 매칭 기준이라, AI 응답을 믿지 않고
+// 우리가 보낸 상품명으로 확정한다 (상품이 뒤바뀌는 사고 방지).
+function shapeRows(raw, groupProducts) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter((r) => r && typeof r.title === 'string' && r.title.trim())
+    .slice(0, groupProducts.length)
+    .map((r, i) => ({
+      input_name: groupProducts[i]?.name || (typeof r.input_name === 'string' ? r.input_name : ''),
+      title: r.title,
+      alt_title: typeof r.alt_title === 'string' ? r.alt_title : '',
+      keywords: Array.isArray(r.keywords) ? r.keywords.filter((k) => typeof k === 'string') : [],
+      tags: Array.isArray(r.tags) ? r.tags.filter((k) => typeof k === 'string') : [],
+    }))
+}
+
+// 상품을 묶음으로 나눠 동시에 생성한다.
+// 한 묶음이 실패하거나 일부 상품이 빠져도 그 자리만 예시 결과로 채우고 나머지는 살린다.
+// 전부 실패했을 때만 예외를 던져 기존 폴백 경로로 넘긴다.
+export async function generateBatch(env, { system, products }) {
+  const started = Date.now()
+  const groups = chunk(products)
+  const elapsed = Array.from({ length: groups.length }, () => 0)
+
+  const settled = await Promise.allSettled(
+    groups.map((group, gi) => {
+      const s = Date.now()
+      return callClaudeTool(env, {
+        system,
+        user: buildUserContent(group),
+        tool: TOOL,
+        maxTokens: 8192,
+        timeoutMs: 70000,
+      }).finally(() => {
+        elapsed[gi] = Date.now() - s
+      })
+    })
+  )
+
+  const rows = []
+  let inputTokens = 0
+  let outputTokens = 0
+  let liveGroups = 0
+  let demoFilled = 0
+
+  // 이 묶음(또는 묶음의 남은 자리)을 예시 결과로 채운다
+  const fillDemo = (items) => {
+    rows.push(...demoResult(items).results)
+    demoFilled += items.length
+  }
+
+  settled.forEach((res, gi) => {
+    const group = groups[gi]
+    if (res.status !== 'fulfilled') return fillDemo(group)
+
+    let shaped = []
+    try {
+      ensureContract(res.value.input, { arrays: ['results'] })
+      shaped = shapeRows(res.value.input.results, group)
+    } catch {
+      return fillDemo(group)
+    }
+    if (shaped.length === 0) return fillDemo(group)
+
+    liveGroups += 1
+    inputTokens += res.value.usage?.input_tokens || 0
+    outputTokens += res.value.usage?.output_tokens || 0
+    rows.push(...shaped)
+    // 묶음 안에서 일부 상품이 빠졌으면 그 자리만 예시로 채운다 (행 수와 순서를 지킨다)
+    if (shaped.length < group.length) fillDemo(group.slice(shaped.length))
+  })
+
+  // 전부 실패했을 때만 예외를 던져 기존 폴백 경로로 넘긴다
+  if (liveGroups === 0) throw failure('contract', 'AI 응답이 불완전합니다. 다시 시도해주세요.')
+
+  return {
+    rows,
+    usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+    failedCount: demoFilled,
+    timing: {
+      total_ms: Date.now() - started,
+      serial_ms: elapsed.reduce((a, b) => a + b, 0),
+      slowest_ms: Math.max(0, ...elapsed),
+      calls: groups.length,
+    },
+  }
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context
   const body = await readJsonBody(request)
@@ -165,29 +268,11 @@ export async function onRequestPost(context) {
   }
 
   try {
-    const { input: result, usage } = await callClaudeTool(env, {
+    const { rows, usage, failedCount, timing } = await generateBatch(env, {
       system: SYSTEM + brandPrompt(brand),
-      user: buildUserContent(products),
-      tool: TOOL,
-      maxTokens: 8192,
-      timeoutMs: 70000,
+      products,
     })
-    ensureContract(result, { arrays: ['results'] })
-    // AI 응답에 필드가 빠질 수 있으므로 표에 그리기 전에 모양을 맞춘다.
-    // 특히 input_name은 화면의 행 식별자이자 재생성 대상 매칭 기준이라, 응답을 믿지 않고
-    // 우리가 보낸 상품명으로 확정한다 (상품이 뒤바뀌는 사고 방지).
-    result.results = result.results
-      .filter((r) => r && typeof r.title === 'string')
-      .slice(0, products.length)
-      .map((r, i) => ({
-        input_name: products[i]?.name || (typeof r.input_name === 'string' ? r.input_name : ''),
-        title: r.title,
-        alt_title: typeof r.alt_title === 'string' ? r.alt_title : '',
-        keywords: Array.isArray(r.keywords) ? r.keywords.filter((k) => typeof k === 'string') : [],
-        tags: Array.isArray(r.tags) ? r.tags.filter((k) => typeof k === 'string') : [],
-      }))
-    if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
-    const checked = withAdCheck(result.results, products, brand)
+    const checked = withAdCheck(rows, products, brand)
     logCall(context, {
       endpoint: 'batch-listing',
       mode: 'live',
@@ -195,7 +280,17 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, results: checked, brand_applied: Boolean(brand), input_warning: injected })
+    return json({
+      demo: false,
+      usage,
+      timing,
+      results: checked,
+      brand_applied: Boolean(brand),
+      input_warning: injected,
+      notice: failedCount
+        ? `상품 ${failedCount}개는 생성이 지연되어 예시 결과로 채웠습니다. 해당 행만 다시 실행하면 됩니다.`
+        : null,
+    })
   } catch (err) {
     const demo = demoResult(products)
     logCall(context, { endpoint: 'batch-listing', mode: 'fallback', startedAt, reason: failureCode(err) })

@@ -6,7 +6,7 @@ import { readTabularFile, TABULAR_ACCEPT } from '../lib/tabular.js'
 import { pushHistory } from '../lib/history.js'
 import { violatingTargets, buildFixPayload, mergeFixed, sumUsage } from '../lib/fixTargets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { BrandBadge, UsageNote, ParallelNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 
 const GEN_STEPS = [
@@ -263,7 +263,7 @@ export default function BatchPage() {
           </label>
           <div className="batch-meta">
             <span className={parsed.products.length > 0 ? 'batch-count ok' : 'batch-count'}>
-              {parsed.products.length}개 인식됨 (포트폴리오 버전은 한 번에 최대 {BATCH_MAX}개)
+              {parsed.products.length}개 인식됨 (한 번에 최대 {BATCH_MAX}개 — 5개씩 묶어 동시 처리)
             </span>
             {parsed.overflow > 0 && (
               <span className="batch-overflow">초과 {parsed.overflow}개는 이번 처리에서 제외됩니다</span>
@@ -296,6 +296,7 @@ export default function BatchPage() {
                 {result.demo && <DemoBadge />}
                 <BrandBadge applied={result.brand_applied} />
                 <UsageNote usage={result.usage} />
+                <ParallelNote timing={result.timing} />
                 <button type="button" className="btn-ghost" onClick={downloadCsv}>
                   등록용 CSV 다운로드
                 </button>

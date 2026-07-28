@@ -1,5 +1,7 @@
 // 대량 등록 입력 파서 — 한 줄에 상품 1개, "상품명 | 카테고리 | 특징" 형식(카테고리·특징 생략 가능)
-export const BATCH_MAX = 5
+// 서버가 상품을 5개씩 묶어 동시에 처리하므로, 20개를 넣어도 걸리는 시간은
+// "가장 느린 묶음 하나"에 가깝다. 예전 한도 5는 한 호출에 전부 담아야 했던 제약이었다.
+export const BATCH_MAX = 20
 
 export function parseProducts(text) {
   const lines = String(text || '')
