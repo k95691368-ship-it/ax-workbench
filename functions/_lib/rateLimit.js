@@ -1,12 +1,19 @@
-// bucket이 windowSeconds 안에 maxHits에 도달했으면 false, 아니면 기록 후 true.
-// D1 바인딩이 없으면(로컬 미설정 등) 제한 없이 통과시킨다.
-export async function checkRateLimit(env, bucket, maxHits, windowSeconds) {
-  if (!env.DB) return true
+// 사용량 제한.
+//
+// 예전 구현은 COUNT로 조회한 뒤 INSERT 했다. 두 문장 사이에 다른 요청이 끼어들면
+// 상한을 넘겨 통과시킬 수 있고(경쟁 조건), D1 오류 시에는 무조건 통과(fail-open)라
+// 장애가 나면 비용 상한이 통째로 사라졌다.
+//
+// 지금은 (1) 조건부 INSERT 한 문장으로 원자적으로 처리하고,
+// (2) 비용을 지키는 상한은 오류 시 막는 쪽(fail-closed)으로 기울인다.
+//    사용자 편의를 지키는 IP별 상한은 그대로 통과시킨다(fail-open).
+
+export async function checkRateLimit(env, bucket, maxHits, windowSeconds, { failOpen = true } = {}) {
+  if (!env.DB) return true // 로컬 개발 등 D1 미설정
   try {
     return await checkRateLimitInner(env, bucket, maxHits, windowSeconds)
   } catch {
-    // D1 오류(테이블 미생성 등)가 API 전체를 500으로 만들지 않도록 fail-open
-    return true
+    return failOpen
   }
 }
 
@@ -24,11 +31,16 @@ async function checkRateLimitInner(env, bucket, maxHits, windowSeconds) {
       .catch(() => {})
   }
 
-  const row = await env.DB.prepare('SELECT COUNT(*) AS count FROM rate_limit_hits WHERE bucket = ?')
-    .bind(bucket)
-    .first()
-  if (row.count >= maxHits) return false
+  // 조회와 기록을 한 문장으로 — 동시 요청이 같은 빈자리를 두 번 차지하지 못하게 한다.
+  const res = await env.DB.prepare(
+    `INSERT INTO rate_limit_hits (bucket)
+     SELECT ?
+     WHERE (SELECT COUNT(*) FROM rate_limit_hits WHERE bucket = ?) < ?`
+  )
+    .bind(bucket, bucket, maxHits)
+    .run()
 
-  await env.DB.prepare('INSERT INTO rate_limit_hits (bucket) VALUES (?)').bind(bucket).run()
-  return true
+  // 삽입이 일어났으면 허용, 아니면 상한 도달
+  const changes = res?.meta?.changes
+  return typeof changes === 'number' ? changes > 0 : true
 }

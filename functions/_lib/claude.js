@@ -25,7 +25,7 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
   const apiKey = env.CLAUDE_API_KEY
   if (!apiKey) throw new Error('CLAUDE_API_KEY가 설정되지 않았습니다.')
 
-  const doFetch = () =>
+  const doFetch = ({ effort = 'medium' } = {}) =>
     fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -41,7 +41,8 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
         max_tokens: maxTokens,
         // Opus 5는 적응형 사고가 기본 활성이라 사고 토큰이 max_tokens를 함께 소비한다.
         // 구조화 JSON 생성은 정형 작업이므로 effort를 medium으로 낮춰 지연·비용을 억제한다.
-        output_config: { effort: 'medium' },
+        // (타임아웃 후 재시도에서는 low로 더 낮춰 응답 시간을 줄인다)
+        output_config: { effort },
         system,
         messages: [{ role: 'user', content: user }],
         tools: [tool],
@@ -58,10 +59,17 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
       res = await doFetch()
     }
   } catch (err) {
-    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError'
+    if (!timedOut) throw failure('network', err?.message || 'AI 서비스에 연결하지 못했습니다.')
+
+    // 실측된 실패의 대부분은 과부하가 아니라 "긴 생성"이었다.
+    // 예시 결과로 강등하기 전에, 사고 강도를 낮춰(effort low) 한 번 더 시도한다 —
+    // 품질은 조금 내려가도 라이브 결과를 지키는 편이 사용자에게 이롭다.
+    try {
+      res = await doFetch({ effort: 'low' })
+    } catch {
       throw failure('timeout', 'AI 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.')
     }
-    throw failure('network', err?.message || 'AI 서비스에 연결하지 못했습니다.')
   }
 
   if (!res.ok) {

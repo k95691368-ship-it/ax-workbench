@@ -2653,3 +2653,17 @@
   font-weight: 800;
   cursor: help;
 }
+
+.adcheck.fact {
+  background: #e0f2fe;
+  color: #0369a1;
+  cursor: help;
+}
+
+.sev-fact {
+  display: inline-block;
+  margin-left: 6px;
+  background: #e0f2fe;
+  color: #0369a1;
+  cursor: help;
+}

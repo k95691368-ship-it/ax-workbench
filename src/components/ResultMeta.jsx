@@ -52,6 +52,20 @@ export function BrandBadge({ applied, missing }) {
   return <span className="brandbadge on">🏷 브랜드 룰북 적용됨</span>
 }
 
+// 사실 근거 점검 — "위반"이 아니라 "사람이 확인해야 할 것"이다.
+// 기계가 확신할 수 없는 영역이므로 자동 수정 대상에 넣지 않고 표시만 한다.
+export function FactCheckBadge({ findings }) {
+  if (!Array.isArray(findings) || findings.length === 0) return null
+  return (
+    <span
+      className="adcheck fact"
+      title={findings.map((f) => `${f.claim} — ${f.reason}`).join('\n')}
+    >
+      🔎 근거 확인 필요 {findings.length}건 · {findings.map((f) => f.claim).join(', ')}
+    </span>
+  )
+}
+
 export function ResultNotice({ text }) {
   if (!text) return null
   return <p className="result-notice">{text}</p>

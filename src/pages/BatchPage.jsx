@@ -389,10 +389,28 @@ export default function BatchPage() {
                               className="sev sev-high"
                               title={r.ad_check.map((f) => `${f.word} — ${f.label}`).join('\n')}
                             >
-                              ⚠ {r.ad_check.length}건
+                              ⚠ 생성문구 {r.ad_check.length}건
                             </span>
                           ) : (
                             <span className="sev sev-ok">✓ 통과</span>
+                          )}
+                          {r.fact_check?.length > 0 && (
+                            <span
+                              className="sev sev-fact"
+                              title={r.fact_check.map((f) => `${f.claim} — ${f.reason}`).join('\n')}
+                            >
+                              근거 {r.fact_check.length}건
+                            </span>
+                          )}
+                          {r.input_check?.length > 0 && (
+                            <span
+                              className="sev sev-input"
+                              title={`입력한 상품 특징에 포함된 표현입니다. 재생성으로는 해결되지 않으니 원문을 고쳐주세요.\n${r.input_check
+                                .map((f) => `${f.word} — ${f.label}`)
+                                .join('\n')}`}
+                            >
+                              입력 {r.input_check.length}건
+                            </span>
                           )}
                         </td>
                       </tr>

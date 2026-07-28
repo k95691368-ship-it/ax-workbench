@@ -4,7 +4,7 @@ import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { scanText, BANNED_RULES } from '../lib/compliance.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { AdCheckBadge, BrandBadge, FactCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import { pushHistory } from '../lib/history.js'
 
 const SAMPLE_RISKY_COPY =
@@ -146,6 +146,7 @@ export default function ListingPage() {
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <AdCheckBadge findings={result.ad_check} />
+                <FactCheckBadge findings={result.fact_check} />
                 <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
                 <UsageNote usage={result.usage} />
               </div>

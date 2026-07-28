@@ -1,5 +1,6 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
@@ -7,6 +8,8 @@ import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js'
 import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
+import { normalizeChannelContents } from '../../_lib/shape.js'
+import { checkClaims } from '../../../src/lib/factCheck.js'
 
 function withAdCheck(results, brand) {
   for (const r of results) {
@@ -161,15 +164,17 @@ export async function onRequestPost(context) {
     return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand) })
   }
 
-  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
+  // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
+  const budget = await checkDailyBudget(env)
+  if (!budget.ok) {
     const demo = demoResult(channels)
-    return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: budgetNotice(budget) })
   }
 
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:content:${ip}`, 8, 3600)))
     return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'ax:content:all', 60, 3600)))
+  if (!(await checkRateLimit(env, 'ax:content:all', 60, 3600, { failOpen: false })))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   const specs = channels.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
@@ -187,11 +192,13 @@ export async function onRequestPost(context) {
       timeoutMs: 85000,
     })
     ensureContract(result, { arrays: ['results'] })
-    result.results = result.results.filter(
-      (r) => r && typeof r.channel === 'string' && typeof r.title === 'string' && typeof r.body === 'string'
-    )
-    if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
+    // 채널 항목 단위로 모양을 맞추고, 요청하지 않은 채널이 섞여 오면 버린다
+    result.results = normalizeChannelContents(result.results, channels)
     const checked = withAdCheck(result.results, brand)
+    const factCheck = checkClaims(
+      checked.flatMap((r) => [r.title, r.body]),
+      [product.name, product.category, product.features, product.target]
+    )
     logCall(context, {
       endpoint: 'content',
       mode: 'live',
@@ -199,7 +206,7 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, ...result, results: checked, input_warning: injected, ...brandMeta(checked, brand) })
+    return json({ demo: false, usage, ...result, results: checked, fact_check: factCheck, input_warning: injected, ...brandMeta(checked, brand) })
   } catch (err) {
     const demo = demoResult(channels)
     logCall(context, { endpoint: 'content', mode: 'fallback', startedAt, reason: failureCode(err) })

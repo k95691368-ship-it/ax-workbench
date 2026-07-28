@@ -1,5 +1,6 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
@@ -7,6 +8,8 @@ import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
 import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
+import { normalizeListing } from '../../_lib/shape.js'
+import { checkClaims } from '../../../src/lib/factCheck.js'
 
 function adCheckListing(result, brand) {
   return checkTexts(
@@ -115,15 +118,17 @@ export async function onRequestPost(context) {
     return json({ ...demo, ad_check: adCheckListing(demo, brand), brand_applied: Boolean(brand) })
   }
 
-  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
+  // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
+  const budget = await checkDailyBudget(env)
+  if (!budget.ok) {
     const demo = demoResult(input)
-    return json({ ...demo, ad_check: adCheckListing(demo, brand), brand_applied: Boolean(brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, ad_check: adCheckListing(demo, brand), brand_applied: Boolean(brand), notice: budgetNotice(budget) })
   }
 
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:listing:${ip}`, 10, 3600)))
     return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'ax:listing:all', 80, 3600)))
+  if (!(await checkRateLimit(env, 'ax:listing:all', 80, 3600, { failOpen: false })))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
@@ -138,9 +143,11 @@ export async function onRequestPost(context) {
     ensureContract(result, {
       arrays: ['titles', 'search_keywords', 'tags', 'category_paths', 'compliance_notes'],
     })
-    const adCheck = adCheckListing(result, brand)
+    const shaped = normalizeListing(result)
+    const adCheck = adCheckListing(shaped, brand)
+    const factCheck = checkClaims([...shaped.titles, ...shaped.search_keywords], [input.name, input.category, input.features])
     logCall(context, { endpoint: 'listing', mode: 'live', startedAt, usage, findingsCount: adCheck.length })
-    return json({ demo: false, usage, ad_check: adCheck, brand_applied: Boolean(brand), input_warning: injected, ...result })
+    return json({ demo: false, usage, ad_check: adCheck, fact_check: factCheck, brand_applied: Boolean(brand), input_warning: injected, ...shaped })
   } catch (err) {
     const demo = demoResult(input)
     logCall(context, { endpoint: 'listing', mode: 'fallback', startedAt, reason: failureCode(err) })

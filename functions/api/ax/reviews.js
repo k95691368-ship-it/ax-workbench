@@ -1,5 +1,6 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES, failureCode } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
@@ -259,15 +260,17 @@ export async function onRequestPost(context) {
     return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand) })
   }
 
-  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
+  // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
+  const budget = await checkDailyBudget(env)
+  if (!budget.ok) {
     const demo = demoResult(reviews, fixes)
-    return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: budgetNotice(budget) })
   }
 
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:reviews:${ip}`, 6, 3600)))
     return errorJson('리뷰 일괄 처리는 시간당 6회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'ax:reviews:all', 40, 3600)))
+  if (!(await checkRateLimit(env, 'ax:reviews:all', 40, 3600, { failOpen: false })))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {

@@ -88,31 +88,34 @@ describe('ensureContract', () => {
 })
 
 describe('checkRateLimit', () => {
-  function mockDb(count, { firstThrows = false } = {}) {
-    return {
-      prepare: () => ({
-        bind: () => ({
-          run: async () => ({}),
-          first: async () => {
-            if (firstThrows) throw new Error('D1 down')
-            return { count }
-          },
-        }),
-        run: async () => ({}),
-      }),
+  // 조건부 INSERT 한 문장으로 처리하므로, 삽입이 일어났는지(meta.changes)로 허용 여부를 판단한다
+  function mockDb(changes, { throws = false } = {}) {
+    const stmt = {
+      bind: () => stmt,
+      run: async () => {
+        if (throws) throw new Error('D1 down')
+        return { meta: { changes } }
+      },
     }
+    return { prepare: () => stmt }
   }
 
-  it('한도 미만이면 허용한다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(3) }, 'b', 5, 60)).toBe(true)
+  it('빈자리가 있으면 기록하고 허용한다', async () => {
+    expect(await checkRateLimit({ DB: mockDb(1) }, 'b', 5, 60)).toBe(true)
   })
 
-  it('한도에 도달하면 차단한다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(5) }, 'b', 5, 60)).toBe(false)
+  it('한도에 도달하면 삽입이 일어나지 않아 차단된다', async () => {
+    expect(await checkRateLimit({ DB: mockDb(0) }, 'b', 5, 60)).toBe(false)
   })
 
-  it('DB 오류 시 500 대신 fail-open으로 허용한다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(0, { firstThrows: true }) }, 'b', 5, 60)).toBe(true)
+  it('DB 오류 시 기본은 서비스 연속성을 위해 통과시킨다 (사용자 편의 상한)', async () => {
+    expect(await checkRateLimit({ DB: mockDb(0, { throws: true }) }, 'b', 5, 60)).toBe(true)
+  })
+
+  it('비용을 지키는 상한은 DB 오류 시 막는 쪽으로 기운다 (fail-closed)', async () => {
+    expect(
+      await checkRateLimit({ DB: mockDb(0, { throws: true }) }, 'b', 5, 60, { failOpen: false })
+    ).toBe(false)
   })
 
   it('DB 바인딩이 없으면 제한 없이 통과한다', async () => {

@@ -4,7 +4,7 @@ import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import ChannelPreview from '../components/ChannelPreview.jsx'
-import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { AdCheckBadge, BrandBadge, FactCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import FixViolations from '../components/FixViolations.jsx'
 import { mergeViolations } from '../lib/fixViolations.js'
@@ -218,6 +218,7 @@ export default function ContentPage() {
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
+                <FactCheckBadge findings={result.fact_check} />
                 <UsageNote usage={result.usage} />
                 {versions.length > 1 && (
                   <div className="ver-row" role="group" aria-label="생성 버전 선택">

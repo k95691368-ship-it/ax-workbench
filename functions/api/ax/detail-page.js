@@ -1,5 +1,6 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
@@ -7,6 +8,8 @@ import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js'
 import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
+import { normalizeDetail } from '../../_lib/shape.js'
+import { checkClaims } from '../../../src/lib/factCheck.js'
 
 function detailTexts(result) {
   return [
@@ -188,15 +191,17 @@ export async function onRequestPost(context) {
   }
 
   // 전역 일일 예산 캡 — 소진 시 서비스를 끊는 대신 예시 결과로 우아하게 강등
-  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
+  // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
+  const budget = await checkDailyBudget(env)
+  if (!budget.ok) {
     const demo = demoResult(input)
-    return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: budgetNotice(budget) })
   }
 
   const ip = clientIp(request)
   if (!(await checkRateLimit(env, `ax:detail:${ip}`, 8, 3600)))
     return errorJson('요청이 너무 잦습니다. 1시간 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'ax:detail:all', 60, 3600)))
+  if (!(await checkRateLimit(env, 'ax:detail:all', 60, 3600, { failOpen: false })))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
@@ -211,9 +216,12 @@ export async function onRequestPost(context) {
       arrays: ['sections', 'faq', 'keywords'],
       strings: ['headline', 'subheadline', 'designer_notes'],
     })
-    const adCheck = adCheckDetail(result, brand)
-    logCall(context, { endpoint: 'detail-page', mode: 'live', startedAt, usage, findingsCount: adCheck.length })
-    return json({ demo: false, usage, ad_check: adCheck, input_warning: injected, ...brandMeta(result, brand), ...result })
+    // 중첩 항목까지 모양을 맞춘다 — 최상위 키만 보면 sections[].body 누락을 놓친다
+    const shaped = normalizeDetail(result)
+    const adCheck = adCheckDetail(shaped, brand)
+    const factCheck = checkClaims(detailTexts(shaped), [input.name, input.category, input.features, input.target])
+    logCall(context, { endpoint: 'detail-page', mode: 'live', startedAt, usage, findingsCount: adCheck.length + factCheck.length })
+    return json({ demo: false, usage, ad_check: adCheck, fact_check: factCheck, input_warning: injected, ...brandMeta(shaped, brand), ...shaped })
   } catch (err) {
     // 외부 AI 장애/지연 시에도 빈 에러 화면 대신 예시 결과로 응답한다
     const demo = demoResult(input)
