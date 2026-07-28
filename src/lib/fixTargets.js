@@ -1,5 +1,6 @@
-// 대량 등록 결과 중 "규정 위반이 검출된 상품만" 골라 다시 생성하기 위한 로직.
-// 통과한 상품은 건드리지 않는다 — 사람의 확인 부담도, 토큰 비용도 위반 건수만큼만 든다.
+// "규정 위반이 검출된 항목만" 골라 다시 만들기 위한 공통 로직.
+// 대량 등록(상품)과 리뷰 응대(답변)가 같은 원칙을 공유한다 —
+// 통과한 항목은 건드리지 않으므로 사람의 확인 부담도, 토큰 비용도 위반 건수만큼만 든다.
 
 // 결과 한 건에 남은 위반 표현 목록 (금칙어 + 룰북 필수 문구 누락)
 export function violationsOf(row) {
@@ -45,6 +46,14 @@ export function mergeFixed(results, fixedResults, targets) {
     next[at] = { ...row, input_name: next[at]?.input_name || row.input_name }
   })
   return next
+}
+
+// 리뷰 응대 재작성 요청 — 원래 리뷰 본문과 함께 이전 답변·검출 표현을 보낸다
+export function buildReviewFixPayload(targets, sentReviews) {
+  return {
+    reviews: targets.map(({ index }) => sentReviews?.[index] || ''),
+    fix: targets.map(({ row, violations }) => ({ previous: row?.reply || '', violations })),
+  }
 }
 
 export function sumUsage(a, b) {

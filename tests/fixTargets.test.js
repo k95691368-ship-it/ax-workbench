@@ -6,7 +6,7 @@ import {
   buildFixPayload,
   mergeFixed,
   sumUsage,
-} from '../src/lib/batchFix.js'
+} from '../src/lib/fixTargets.js'
 import { onRequestPost } from '../functions/api/ax/batch-listing.js'
 
 const ROWS = [

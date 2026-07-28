@@ -85,21 +85,40 @@ const DEMO_MAP = [
   },
 ]
 
-function demoResult(reviews) {
+// 재작성 요청일 때는 예시 답변에서도 검출된 표현이 든 문장을 덜어낸다.
+// (예시 결과라도 "다시 썼는데 그대로"인 화면을 보여주지 않기 위한 처리)
+function stripSentences(reply, violations) {
+  if (!violations?.length) return reply
+  const kept = reply
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !violations.some((w) => sentence.includes(w)))
+    .join(' ')
+    .trim()
+  return kept || '고객님, 문의 주신 내용은 담당자가 확인 후 개별적으로 안내드리겠습니다.'
+}
+
+function demoResult(reviews, fixes = []) {
   return {
     demo: true,
-    results: reviews.map((rv) => {
+    results: reviews.map((rv, i) => {
+      const violations = fixes[i]?.violations || []
       const hit = DEMO_MAP.find((d) => d.match.test(rv))
       if (hit) {
         const { match: _match, ...rest } = hit
-        return { ...rest, escalate_reason: rest.escalate_reason || null }
+        return {
+          ...rest,
+          reply: stripSentences(rest.reply, violations),
+          escalate_reason: rest.escalate_reason || null,
+        }
       }
       return {
         category: '사용문의',
         escalate: false,
         escalate_reason: null,
-        reply:
+        reply: stripSentences(
           '고객님, 문의 주셔서 감사합니다. 말씀하신 내용을 확인해 정확히 안내드리겠습니다. 제품 상세페이지의 표기사항도 함께 참고해 주시면 도움이 됩니다. 추가로 궁금한 점이 있으시면 언제든 문의해 주세요.',
+          violations
+        ),
       }
     }),
   }
@@ -130,6 +149,31 @@ function withChecks(results, brand) {
   return { results: checked, ...meta }
 }
 
+// 최초 작성과 재작성(위반 답변만 다시)에 같은 도구를 쓰되, 지시문만 달라진다
+function buildUserContent(reviews, fixes) {
+  const list = reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')
+  const base = `[고객 리뷰 (${reviews.length}건)]\n${list}\n\n모든 리뷰에 대해 순서대로 분류·답변·에스컬레이션 판단을 기록하세요.`
+  const retry = fixes.filter((f) => f.violations.length > 0)
+  if (retry.length === 0) return base
+  const detail = fixes
+    .map((f, i) =>
+      f.violations.length
+        ? `${i + 1}번 답변 — 검출된 표현: ${f.violations.join(', ')}\n   이전 답변: ${f.previous}`
+        : null
+    )
+    .filter(Boolean)
+    .join('\n')
+  return `${base}
+
+[재작성 지시 — 중요]
+이 요청은 이전 답변에서 규정 위반이 검출되어 다시 쓰는 것입니다.
+${detail}
+- 검출된 표현과 그 동의어·변형을 절대 쓰지 말고, 같은 뜻을 다른 방식으로 표현하세요.
+- 이전 답변을 그대로 되풀이하지 말고 문장을 새로 구성하세요.
+- 필수 문구가 누락으로 지적됐다면 표기를 바꾸지 말고 그대로 넣으세요.
+- 에스컬레이션 판단 기준은 그대로 유지하세요.`
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context
   const body = await readJsonBody(request)
@@ -138,6 +182,14 @@ export async function onRequestPost(context) {
     .slice(0, MAX_REVIEWS)
     .map((r) => r.trim().slice(0, 500))
   if (reviews.length === 0) return errorJson('리뷰를 1개 이상 입력해주세요. (한 줄에 하나)')
+
+  // 재작성 모드: 이전 답변과 검출된 표현을 리뷰 순서에 맞춰 받는다 (없으면 최초 작성)
+  const fixes = (Array.isArray(body?.fix) ? body.fix : []).slice(0, MAX_REVIEWS).map((f) => ({
+    previous: String(f?.previous || '').slice(0, 600),
+    violations: Array.isArray(f?.violations)
+      ? f.violations.filter((v) => typeof v === 'string' && v.trim()).slice(0, 10).map((v) => v.trim().slice(0, 40))
+      : [],
+  }))
 
   // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 답변 말투·금지어에 적용된다
   const brand = sanitizeBrand(body?.brand)
@@ -148,18 +200,18 @@ export async function onRequestPost(context) {
   const guard = await verifyTurnstile(env, request)
   if (!guard.ok) {
     logCall(context, { endpoint: 'reviews', mode: 'unverified', startedAt })
-    const demo = demoResult(reviews)
+    const demo = demoResult(reviews, fixes)
     return json({ ...demo, ...withChecks(demo.results, brand), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
   }
 
   if (!hasApiKey(env)) {
-    const demo = demoResult(reviews)
+    const demo = demoResult(reviews, fixes)
     logCall(context, { endpoint: 'reviews', mode: 'demo', startedAt })
     return json({ ...demo, ...withChecks(demo.results, brand) })
   }
 
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
-    const demo = demoResult(reviews)
+    const demo = demoResult(reviews, fixes)
     return json({ ...demo, ...withChecks(demo.results, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
   }
 
@@ -172,7 +224,7 @@ export async function onRequestPost(context) {
   try {
     const { input: result, usage } = await callClaudeTool(env, {
       system: SYSTEM + brandPrompt(brand),
-      user: `[고객 리뷰 (${reviews.length}건)]\n${reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\n모든 리뷰에 대해 순서대로 분류·답변·에스컬레이션 판단을 기록하세요.`,
+      user: buildUserContent(reviews, fixes),
       tool: TOOL,
       maxTokens: 8192,
       timeoutMs: 70000,
@@ -192,7 +244,7 @@ export async function onRequestPost(context) {
     })
     return json({ demo: false, usage, ...checked })
   } catch (err) {
-    const demo = demoResult(reviews)
+    const demo = demoResult(reviews, fixes)
     logCall(context, { endpoint: 'reviews', mode: 'fallback', startedAt })
     return json({ ...demo, ...withChecks(demo.results, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }

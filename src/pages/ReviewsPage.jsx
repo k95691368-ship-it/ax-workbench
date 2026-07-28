@@ -5,6 +5,7 @@ import DemoBadge from '../components/DemoBadge.jsx'
 import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { pushHistory } from '../lib/history.js'
+import { violatingTargets, buildReviewFixPayload, mergeFixed, sumUsage } from '../lib/fixTargets.js'
 
 const GEN_STEPS = [
   '리뷰를 유형별로 분류하고 있어요',
@@ -36,6 +37,11 @@ export default function ReviewsPage() {
   const resultRef = useRef(null)
   const location = useLocation()
   const navigate = useNavigate()
+  // 요청에 실제로 보낸 리뷰 — 입력창을 나중에 고쳐도 재작성 대상이 어긋나지 않게 보관
+  const [sent, setSent] = useState([])
+  const [fixing, setFixing] = useState(false)
+  const [fixedRows, setFixedRows] = useState([])
+  const [fixNote, setFixNote] = useState('')
 
   // 생성 이력에서 복원
   useEffect(() => {
@@ -63,6 +69,9 @@ export default function ReviewsPage() {
       const data = await postJson('/api/ax/reviews', { reviews })
       data.results = Array.isArray(data.results) ? data.results : []
       setResult(data)
+      setSent(reviews)
+      setFixedRows([])
+      setFixNote('')
       pushHistory({
         feature: 'reviews',
         label: `리뷰 ${reviews.length}건 응대`,
@@ -77,6 +86,45 @@ export default function ReviewsPage() {
     }
   }
 
+  // 위반이 검출된 답변만 다시 쓴다 — 통과한 답변은 그대로 둔다
+  async function rewriteFlagged() {
+    if (!result || fixing) return
+    const targets = violatingTargets(result.results)
+    if (targets.length === 0) return
+    const before = targets.reduce((n, t) => n + t.violations.length, 0)
+    setFixing(true)
+    setError('')
+    try {
+      const data = await postJson('/api/ax/reviews', buildReviewFixPayload(targets, sent))
+      const merged = mergeFixed(result.results, Array.isArray(data.results) ? data.results : [], targets)
+      const after = violatingTargets(merged).reduce((n, t) => n + t.violations.length, 0)
+      const next = {
+        ...result,
+        results: merged,
+        usage: sumUsage(result.usage, data.usage),
+        demo: result.demo || data.demo,
+        notice: data.notice || result.notice,
+      }
+      setResult(next)
+      setFixedRows(targets.map((t) => t.index))
+      setFixNote(
+        after === 0
+          ? `재작성 완료 — 위반 ${before}건이 모두 해소됐습니다. (${targets.length}건만 다시 작성)`
+          : `재작성 완료 — 위반 ${before}건 → ${after}건. 남은 건은 담당자가 확인해주세요.`
+      )
+      pushHistory({
+        feature: 'reviews',
+        label: `답변 ${targets.length}건 재작성 (위반 ${before}건 → ${after}건)`,
+        input: text,
+        result: next,
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setFixing(false)
+    }
+  }
+
   async function copyReply(i, reply) {
     try {
       await navigator.clipboard.writeText(reply)
@@ -88,6 +136,8 @@ export default function ReviewsPage() {
   }
 
   const escalated = result ? result.results.filter((r) => r.escalate).length : 0
+  // 금칙어·룰북 위반이 남은 답변 수 (재작성 대상)
+  const flaggedReplies = result ? violatingTargets(result.results).length : 0
 
   return (
     <div className="tool-page">
@@ -134,7 +184,17 @@ export default function ReviewsPage() {
                 {result.demo && <DemoBadge />}
                 <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
                 <UsageNote usage={result.usage} />
+                {flaggedReplies > 0 && (
+                  <button type="button" className="btn-primary" disabled={fixing} onClick={rewriteFlagged}>
+                    {fixing ? '재작성 중... (20~50초)' : `위반 답변 ${flaggedReplies}건만 다시 쓰기`}
+                  </button>
+                )}
               </div>
+              {fixNote && (
+                <p className="form-success" role="status">
+                  {fixNote}
+                </p>
+              )}
 
               <div className="stat-row batch-summary">
                 <div className="stat-tile">
@@ -172,6 +232,7 @@ export default function ReviewsPage() {
                     {r.escalate && r.escalate_reason && (
                       <p className="escalate-reason">에스컬레이션 사유: {r.escalate_reason}</p>
                     )}
+                    {fixedRows.includes(i) && <span className="row-refixed">재작성됨</span>}
                     {r.brand_missing?.length > 0 && (
                       <p className="review-brand-missing">
                         룰북 필수 문구 누락: {r.brand_missing.join(', ')}

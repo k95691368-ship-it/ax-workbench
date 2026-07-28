@@ -6,6 +6,7 @@ const PROOFS = [
   { before: '금칙어 육안 검수', after: '즉시 검출', label: '표시광고법 기준 4분류 자동 점검' },
   { before: '주간 매출 정리 2시간', after: '클릭 1번', label: '엑셀·CSV 올리면 차트·리포트까지' },
   { before: '담당자마다 다른 말투', after: '룰북 1회 정의', label: '전 기능이 회사 규정을 자동 준수' },
+  { before: '걸린 문구는 손으로 수정', after: '클릭 한 번', label: '위반 항목만 골라 AI가 다시 작성' },
 ]
 
 const DEMOS = [

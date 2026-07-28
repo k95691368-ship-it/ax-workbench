@@ -53,3 +53,30 @@ describe('리뷰 응대의 브랜드 룰북 점검', () => {
     expect(words).toContain('감사합니다')
   })
 })
+
+describe('리뷰 답변 재작성 모드', () => {
+  it('검출된 표현이 든 문장을 덜어낸 답변을 돌려준다', async () => {
+    const data = await callReviews({
+      reviews: ['배송이 너무 늦어요'],
+      fix: [{ previous: '고객님, 배송이 지연되어 불편을 드려 죄송합니다. 주문 내역을 확인해 드리겠습니다.', violations: ['죄송'] }],
+      brand: { banned: ['죄송'] },
+    })
+    expect(data.results[0].reply).not.toContain('죄송')
+    expect(data.results[0].ad_check.map((f) => f.word)).not.toContain('죄송')
+  })
+
+  it('모든 문장이 걸리면 안전한 기본 문구로 대체한다 (빈 답변을 만들지 않는다)', async () => {
+    const data = await callReviews({
+      reviews: ['배송이 너무 늦어요'],
+      fix: [{ previous: '이전 답변', violations: ['고객님'] }],
+      brand: { banned: ['고객님'] },
+    })
+    expect(data.results[0].reply.length).toBeGreaterThan(10)
+  })
+
+  it('재작성 정보가 없으면 기존 동작 그대로다', async () => {
+    const data = await callReviews({ reviews: ['배송이 너무 늦어요'] })
+    expect(data.results[0].category).toBe('배송')
+    expect(data.results[0].reply).toContain('죄송')
+  })
+})
