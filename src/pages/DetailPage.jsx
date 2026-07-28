@@ -5,7 +5,7 @@ import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { DP_THEMES, getTheme, orbStyle, makeCustomTheme, fileToResizedDataUrl } from '../lib/themes.js'
 import { buildHtml, buildBrief, downloadFile, safeFileName } from '../lib/detailHtml.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
@@ -222,6 +222,7 @@ export default function DetailPage() {
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <AdCheckBadge findings={result.ad_check} />
+                <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
                 <UsageNote usage={result.usage} />
                 <div className="viewport-toggle" role="group" aria-label="미리보기 크기">
                   <button

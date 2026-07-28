@@ -4,12 +4,20 @@ import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
+import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js'
 
-function withAdCheck(results) {
+function withAdCheck(results, brand) {
   for (const r of results) {
-    r.ad_check = checkTexts([r.title, r.body, ...(r.hashtags || [])])
+    r.ad_check = checkTexts([r.title, r.body, ...(r.hashtags || [])], brand)
   }
   return results
+}
+
+// 브랜드 룰북 적용 결과 — 필수 문구가 채널 콘텐츠 전체에 실제로 들어갔는지 확인한다
+function brandMeta(results, brand) {
+  if (!brand) return { brand_applied: false }
+  const texts = results.flatMap((r) => [r.title, r.body])
+  return { brand_applied: true, brand_missing: missingRequired(texts, brand) }
 }
 
 const CHANNEL_SPECS = {
@@ -131,6 +139,9 @@ export async function onRequestPost(context) {
     if (!previous) return errorJson('이전 결과가 없어 피드백을 반영할 수 없습니다. 먼저 생성해주세요.')
   }
 
+  // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 없으면 null
+  const brand = sanitizeBrand(body.brand)
+
   const startedAt = Date.now()
 
   // 보안 검증 실패도 하드 차단하지 않는다 — 예시 결과로 강등하고 사유를 기록한다
@@ -138,18 +149,18 @@ export async function onRequestPost(context) {
   if (!guard.ok) {
     logCall(context, { endpoint: 'content', mode: 'unverified', startedAt })
     const demo = demoResult(channels)
-    return json({ ...demo, results: withAdCheck(demo.results), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
   }
 
   if (!hasApiKey(env)) {
     const demo = demoResult(channels)
     logCall(context, { endpoint: 'content', mode: 'demo', startedAt })
-    return json({ ...demo, results: withAdCheck(demo.results) })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand) })
   }
 
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
     const demo = demoResult(channels)
-    return json({ ...demo, results: withAdCheck(demo.results), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
   }
 
   const ip = clientIp(request)
@@ -165,7 +176,7 @@ export async function onRequestPost(context) {
   }
   try {
     const { input: result, usage } = await callClaudeTool(env, {
-      system: SYSTEM,
+      system: SYSTEM + brandPrompt(brand),
       user: userContent,
       tool: TOOL,
       maxTokens: 16000,
@@ -175,7 +186,7 @@ export async function onRequestPost(context) {
       (r) => r && typeof r.channel === 'string' && typeof r.title === 'string' && typeof r.body === 'string'
     )
     if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
-    const checked = withAdCheck(result.results)
+    const checked = withAdCheck(result.results, brand)
     logCall(context, {
       endpoint: 'content',
       mode: 'live',
@@ -183,10 +194,10 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, ...result, results: checked })
+    return json({ demo: false, usage, ...result, results: checked, ...brandMeta(checked, brand) })
   } catch (err) {
     const demo = demoResult(channels)
     logCall(context, { endpoint: 'content', mode: 'fallback', startedAt })
-    return json({ ...demo, results: withAdCheck(demo.results), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

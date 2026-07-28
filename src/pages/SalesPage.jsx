@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
-import { parseCsv, normalizeSales, aggregate, weekdayAverages, decodeCsvBuffer } from '../lib/csv.js'
+import { parseCsv, normalizeSales, aggregate, weekdayAverages } from '../lib/csv.js'
+import { readTabularFile, TABULAR_ACCEPT } from '../lib/tabular.js'
 import { SAMPLE_CSV } from '../lib/sampleSales.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
@@ -152,17 +153,22 @@ export default function SalesPage() {
     ? `${summary.byDate[0][0]} ~ ${summary.byDate[summary.byDate.length - 1][0]}`
     : ''
 
-  function loadText(text) {
+  // 엑셀·CSV 어느 쪽이든 같은 행렬로 들어온다
+  function loadRows(rows) {
     setError('')
     setReport(null)
     setChannel('all')
     channelRef.current = 'all'
     try {
-      setRecords(normalizeSales(parseCsv(text)))
+      setRecords(normalizeSales(rows))
     } catch (err) {
       setRecords(null)
       setError(err.message)
     }
+  }
+
+  function loadText(text) {
+    loadRows(parseCsv(text))
   }
 
   function pickChannel(c) {
@@ -187,16 +193,17 @@ export default function SalesPage() {
     URL.revokeObjectURL(url)
   }
 
-  function onFile(e) {
+  async function onFile(e) {
     const file = e.target.files?.[0]
     // 같은 파일을 다시 선택해도 change가 발화하도록 value를 비워둔다
     e.target.value = ''
     if (!file) return
-    const reader = new FileReader()
-    // ArrayBuffer로 읽어 UTF-8/CP949(한국 Excel 기본)를 자동 판별해 디코딩
-    reader.onload = () => loadText(decodeCsvBuffer(reader.result))
-    reader.onerror = () => setError('파일을 읽지 못했습니다. 다시 시도해주세요.')
-    reader.readAsArrayBuffer(file)
+    try {
+      // 엑셀(.xlsx)은 첫 시트를, CSV는 UTF-8/CP949를 자동 판별해 읽는다
+      loadRows(await readTabularFile(file))
+    } catch (err) {
+      setError(err.message || '파일을 읽지 못했습니다. 다시 시도해주세요.')
+    }
   }
 
   function downloadSample() {
@@ -230,7 +237,7 @@ export default function SalesPage() {
         <span className="tool-tag">담당업무 A · 매출분석/판매통계 자동화</span>
         <h1>매출 리포트 자동화</h1>
         <p>
-          판매 CSV를 올리면 브라우저에서 즉시 집계·시각화합니다(원본 데이터는 서버로 전송되지
+          판매 엑셀·CSV를 올리면 브라우저에서 즉시 집계·시각화합니다(원본 데이터는 서버로 전송되지
           않습니다). 이어서 AI가 인사이트·실행 제안이 담긴 주간 리포트를 작성합니다.
         </p>
       </header>
@@ -240,12 +247,12 @@ export default function SalesPage() {
           샘플 데이터로 바로 보기
         </button>
         <button type="button" className="btn-ghost" onClick={() => fileRef.current?.click()}>
-          내 CSV 업로드
+          엑셀 · CSV 업로드
         </button>
         <button type="button" className="btn-ghost" onClick={downloadSample}>
           샘플 CSV 내려받기
         </button>
-        <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={onFile} />
+        <input ref={fileRef} type="file" accept={TABULAR_ACCEPT} hidden onChange={onFile} />
         <span className="sales-hint">필요 컬럼: 날짜, 채널, 상품명, 수량, 매출액</span>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}

@@ -34,12 +34,23 @@ export const BANNED_RULES = [
   },
 ]
 
+// 브랜드 룰북에서 회사가 직접 지정한 금지어. 법정 규칙과 같은 방식으로 함께 스캔한다.
+export const BRAND_RULE = {
+  id: 'brand',
+  severity: 'medium',
+  label: '브랜드 금지어',
+  reason: '브랜드 룰북에서 쓰지 않기로 정한 표현입니다.',
+}
+
 // 텍스트에서 금칙어 후보를 스캔해 위치와 함께 반환한다.
 // 겹치는 매치("변비 치료" 안의 "치료" 등)는 더 긴 표현 하나로만 보고한다.
-export function scanText(text) {
+// brandBanned를 넘기면 회사 규정 금지어까지 같은 기준으로 함께 검출한다.
+export function scanText(text, brandBanned = []) {
   const findings = []
   if (!text) return findings
-  for (const rule of BANNED_RULES) {
+  const extra = [...new Set((brandBanned || []).filter((w) => typeof w === 'string' && w.trim()))]
+  const rules = extra.length ? [...BANNED_RULES, { ...BRAND_RULE, words: extra }] : BANNED_RULES
+  for (const rule of rules) {
     for (const word of rule.words) {
       let idx = text.indexOf(word)
       while (idx !== -1) {

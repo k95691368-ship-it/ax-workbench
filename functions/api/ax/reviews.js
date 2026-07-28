@@ -4,6 +4,7 @@ import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
+import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
 
 const MAX_REVIEWS = 8
 
@@ -104,8 +105,8 @@ function demoResult(reviews) {
   }
 }
 
-function withAdCheck(results) {
-  return results.map((r) => ({ ...r, ad_check: checkTexts([r.reply]) }))
+function withAdCheck(results, brand) {
+  return results.map((r) => ({ ...r, ad_check: checkTexts([r.reply], brand) }))
 }
 
 export async function onRequestPost(context) {
@@ -117,6 +118,9 @@ export async function onRequestPost(context) {
     .map((r) => r.trim().slice(0, 500))
   if (reviews.length === 0) return errorJson('리뷰를 1개 이상 입력해주세요. (한 줄에 하나)')
 
+  // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 답변 말투·금지어에 적용된다
+  const brand = sanitizeBrand(body?.brand)
+
   const startedAt = Date.now()
 
   // 보안 검증 실패도 하드 차단하지 않는다 — 예시 결과로 강등하고 사유를 기록한다
@@ -124,18 +128,18 @@ export async function onRequestPost(context) {
   if (!guard.ok) {
     logCall(context, { endpoint: 'reviews', mode: 'unverified', startedAt })
     const demo = demoResult(reviews)
-    return json({ ...demo, results: withAdCheck(demo.results), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), brand_applied: Boolean(brand), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
   }
 
   if (!hasApiKey(env)) {
     const demo = demoResult(reviews)
     logCall(context, { endpoint: 'reviews', mode: 'demo', startedAt })
-    return json({ ...demo, results: withAdCheck(demo.results) })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), brand_applied: Boolean(brand) })
   }
 
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
     const demo = demoResult(reviews)
-    return json({ ...demo, results: withAdCheck(demo.results), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), brand_applied: Boolean(brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
   }
 
   const ip = clientIp(request)
@@ -146,7 +150,7 @@ export async function onRequestPost(context) {
 
   try {
     const { input: result, usage } = await callClaudeTool(env, {
-      system: SYSTEM,
+      system: SYSTEM + brandPrompt(brand),
       user: `[고객 리뷰 (${reviews.length}건)]\n${reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\n모든 리뷰에 대해 순서대로 분류·답변·에스컬레이션 판단을 기록하세요.`,
       tool: TOOL,
       maxTokens: 8192,
@@ -156,7 +160,7 @@ export async function onRequestPost(context) {
       .filter((r) => r && typeof r.reply === 'string')
       .slice(0, reviews.length)
     if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
-    const checked = withAdCheck(result.results)
+    const checked = withAdCheck(result.results, brand)
     logCall(context, {
       endpoint: 'reviews',
       mode: 'live',
@@ -164,10 +168,10 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, results: checked })
+    return json({ demo: false, usage, results: checked, brand_applied: Boolean(brand) })
   } catch (err) {
     const demo = demoResult(reviews)
     logCall(context, { endpoint: 'reviews', mode: 'fallback', startedAt })
-    return json({ ...demo, results: withAdCheck(demo.results), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
+    return json({ ...demo, results: withAdCheck(demo.results, brand), brand_applied: Boolean(brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

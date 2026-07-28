@@ -3,10 +3,11 @@
 import { scanText } from '../../src/lib/compliance.js'
 
 // 여러 텍스트 조각을 합쳐 스캔하고, 같은 단어는 1건으로 요약해 반환한다.
-export function checkTexts(texts) {
+// brand(브랜드 룰북)가 있으면 회사가 지정한 금지어까지 같은 결과에 포함한다.
+export function checkTexts(texts, brand = null) {
   const joined = texts.filter(Boolean).join('\n')
   const seen = new Map()
-  for (const f of scanText(joined)) {
+  for (const f of scanText(joined, brand?.banned || [])) {
     if (!seen.has(f.word)) {
       seen.set(f.word, { word: f.word, label: f.label, severity: f.severity, reason: f.reason })
     }

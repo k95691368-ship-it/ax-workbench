@@ -4,7 +4,7 @@ import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS } from '../lib/presets.js'
 import { scanText, BANNED_RULES } from '../lib/compliance.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
 const SAMPLE_RISKY_COPY =
   '변비 치료에 즉시 효과! 국내 1위 유일한 유산균으로 장 질병 예방과 디톡스, 독소 배출까지 한 번에. 100% 효과 보장!'
@@ -133,6 +133,7 @@ export default function ListingPage() {
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <AdCheckBadge findings={result.ad_check} />
+                <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
                 <UsageNote usage={result.usage} />
               </div>
               <section>

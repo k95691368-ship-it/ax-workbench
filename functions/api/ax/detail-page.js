@@ -4,14 +4,25 @@ import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
+import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js'
 
-function adCheckDetail(result) {
-  return checkTexts([
+function detailTexts(result) {
+  return [
     result.headline,
     result.subheadline,
     ...(result.sections || []).flatMap((s) => [s.title, s.body, ...(s.bullets || [])]),
     ...(result.faq || []).flatMap((f) => [f.q, f.a]),
-  ])
+  ]
+}
+
+function adCheckDetail(result, brand) {
+  return checkTexts(detailTexts(result), brand)
+}
+
+// 브랜드 룰북 적용 결과 — 필수 문구가 실제로 들어갔는지까지 확인해 함께 돌려준다
+function brandMeta(result, brand) {
+  if (!brand) return { brand_applied: false }
+  return { brand_applied: true, brand_missing: missingRequired(detailTexts(result), brand) }
 }
 
 const TOOL = {
@@ -147,6 +158,9 @@ export async function onRequestPost(context) {
     if (!previous) return errorJson('이전 결과가 없어 피드백을 반영할 수 없습니다. 먼저 생성해주세요.')
   }
 
+  // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 없으면 null
+  const brand = sanitizeBrand(body.brand)
+
   let userContent = `[제품 정보]\n${JSON.stringify(input, null, 2)}`
   if (previous) {
     userContent += `\n\n[이전 생성 결과]\n${JSON.stringify(previous)}\n\n[사용자 피드백]\n${feedback}\n\n위 피드백을 반영한 개선판을 만드세요. 피드백과 무관하게 잘된 부분(사실 정보·구조)은 유지하고, 피드백이 요구한 방향은 확실하게 반영하세요. 디자인 방향 피드백이면 designer_notes와 image_brief에도 반영하세요.`
@@ -159,19 +173,19 @@ export async function onRequestPost(context) {
   if (!guard.ok) {
     logCall(context, { endpoint: 'detail-page', mode: 'unverified', startedAt })
     const demo = demoResult(input)
-    return json({ ...demo, ad_check: adCheckDetail(demo), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
+    return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
   }
 
   if (!hasApiKey(env)) {
     const demo = demoResult(input)
     logCall(context, { endpoint: 'detail-page', mode: 'demo', startedAt })
-    return json({ ...demo, ad_check: adCheckDetail(demo) })
+    return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand) })
   }
 
   // 전역 일일 예산 캡 — 소진 시 서비스를 끊는 대신 예시 결과로 우아하게 강등
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
     const demo = demoResult(input)
-    return json({ ...demo, ad_check: adCheckDetail(demo), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
   }
 
   const ip = clientIp(request)
@@ -182,7 +196,7 @@ export async function onRequestPost(context) {
 
   try {
     const { input: result, usage } = await callClaudeTool(env, {
-      system: SYSTEM,
+      system: SYSTEM + brandPrompt(brand),
       user: userContent,
       tool: TOOL,
       maxTokens: 4096,
@@ -191,13 +205,13 @@ export async function onRequestPost(context) {
       arrays: ['sections', 'faq', 'keywords'],
       strings: ['headline', 'subheadline', 'designer_notes'],
     })
-    const adCheck = adCheckDetail(result)
+    const adCheck = adCheckDetail(result, brand)
     logCall(context, { endpoint: 'detail-page', mode: 'live', startedAt, usage, findingsCount: adCheck.length })
-    return json({ demo: false, usage, ad_check: adCheck, ...result })
+    return json({ demo: false, usage, ad_check: adCheck, ...brandMeta(result, brand), ...result })
   } catch (err) {
     // 외부 AI 장애/지연 시에도 빈 에러 화면 대신 예시 결과로 응답한다
     const demo = demoResult(input)
     logCall(context, { endpoint: 'detail-page', mode: 'fallback', startedAt })
-    return json({ ...demo, ad_check: adCheckDetail(demo), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
+    return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

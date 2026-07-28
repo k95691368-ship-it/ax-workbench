@@ -4,7 +4,8 @@ const PROOFS = [
   { before: '상세페이지 초안 반나절', after: '30초', label: '제품 정보만 넣으면 섹션 구조까지' },
   { before: '채널별 콘텐츠 각각 작성', after: '6종 동시', label: '인스타부터 틱톡까지 한 번에' },
   { before: '금칙어 육안 검수', after: '즉시 검출', label: '표시광고법 기준 4분류 자동 점검' },
-  { before: '주간 매출 정리 2시간', after: '클릭 1번', label: 'CSV 올리면 차트·리포트까지' },
+  { before: '주간 매출 정리 2시간', after: '클릭 1번', label: '엑셀·CSV 올리면 차트·리포트까지' },
+  { before: '담당자마다 다른 말투', after: '룰북 1회 정의', label: '전 기능이 회사 규정을 자동 준수' },
 ]
 
 const DEMOS = [
@@ -37,7 +38,7 @@ const DEMOS = [
     to: '/batch',
     tag: '담당업무 A · 연 1,000개 대응',
     title: '대량 등록 도우미',
-    desc: '상품 목록을 통째로 넣으면 전 상품의 상품명·태그·금칙어 점검을 일괄 처리해요. 사람은 플래그 붙은 상품만 확인합니다.',
+    desc: '쓰던 엑셀·CSV를 그대로 올리면 전 상품의 상품명·태그·금칙어 점검을 일괄 처리해요. 사람은 플래그 붙은 상품만 확인합니다.',
   },
   {
     to: '/reviews',
@@ -49,7 +50,13 @@ const DEMOS = [
     to: '/sales',
     tag: '담당업무 A',
     title: '매출 리포트 자동화',
-    desc: '판매 CSV를 올리면 브라우저에서 즉시 집계·차트를 그리고, AI가 인사이트·발주 제안이 담긴 주간 리포트를 써 드려요.',
+    desc: '판매 엑셀·CSV를 올리면 브라우저에서 즉시 집계·차트를 그리고, AI가 인사이트·발주 제안이 담긴 주간 리포트를 써 드려요.',
+  },
+  {
+    to: '/brand',
+    tag: '전 기능 공통 · 조직 규정',
+    title: '브랜드 룰북',
+    desc: '회사의 말투·금지어·필수 문구를 한 번 정의하면 모든 생성 기능이 자동으로 따릅니다. 사람이 매번 손보는 대신 규칙을 한 곳에서 관리해요.',
   },
   {
     to: '/edu',
@@ -112,7 +119,7 @@ export default function HubPage() {
       </section>
 
       <section className="hub-demos">
-        <h2>기능 7가지 — 채용공고의 담당업무 그대로</h2>
+        <h2>기능 9가지 — 채용공고의 담당업무 그대로</h2>
         <div className="hub-grid">
           {DEMOS.map((d) => (
             <Link key={d.to} to={d.to} className={d.featured ? 'hub-card featured' : 'hub-card'}>

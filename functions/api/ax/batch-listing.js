@@ -4,6 +4,7 @@ import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES } from '../
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
+import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
 
 const MAX_PRODUCTS = 5
 
@@ -57,16 +58,13 @@ function demoResult(products) {
   }
 }
 
-function withAdCheck(results, products) {
+function withAdCheck(results, products, brand) {
   return results.map((r, i) => ({
     ...r,
-    ad_check: checkTexts([
-      r.title,
-      r.alt_title,
-      ...(r.keywords || []),
-      ...(r.tags || []),
-      products[i]?.features,
-    ]),
+    ad_check: checkTexts(
+      [r.title, r.alt_title, ...(r.keywords || []), ...(r.tags || []), products[i]?.features],
+      brand
+    ),
   }))
 }
 
@@ -84,6 +82,9 @@ export async function onRequestPost(context) {
     }))
   if (products.length === 0) return errorJson('상품을 1개 이상 입력해주세요. (한 줄에 하나)')
 
+  // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 없으면 null
+  const brand = sanitizeBrand(body?.brand)
+
   const startedAt = Date.now()
 
   // 보안 검증 실패도 하드 차단하지 않는다 — 예시 결과로 강등하고 사유를 기록한다
@@ -91,18 +92,18 @@ export async function onRequestPost(context) {
   if (!guard.ok) {
     logCall(context, { endpoint: 'batch-listing', mode: 'unverified', startedAt })
     const demo = demoResult(products)
-    return json({ ...demo, results: withAdCheck(demo.results, products), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
+    return json({ ...demo, results: withAdCheck(demo.results, products, brand), brand_applied: Boolean(brand), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
   }
 
   if (!hasApiKey(env)) {
     const demo = demoResult(products)
     logCall(context, { endpoint: 'batch-listing', mode: 'demo', startedAt })
-    return json({ ...demo, results: withAdCheck(demo.results, products) })
+    return json({ ...demo, results: withAdCheck(demo.results, products, brand), brand_applied: Boolean(brand) })
   }
 
   if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400))) {
     const demo = demoResult(products)
-    return json({ ...demo, results: withAdCheck(demo.results, products), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({ ...demo, results: withAdCheck(demo.results, products, brand), brand_applied: Boolean(brand), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
   }
 
   const ip = clientIp(request)
@@ -113,7 +114,7 @@ export async function onRequestPost(context) {
 
   try {
     const { input: result, usage } = await callClaudeTool(env, {
-      system: SYSTEM,
+      system: SYSTEM + brandPrompt(brand),
       user: `[상품 목록 (${products.length}개)]\n${JSON.stringify(products, null, 2)}\n\n목록의 모든 상품에 대해 각각 결과를 기록하세요.`,
       tool: TOOL,
       maxTokens: 8192,
@@ -123,7 +124,7 @@ export async function onRequestPost(context) {
       .filter((r) => r && typeof r.title === 'string')
       .slice(0, products.length)
     if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
-    const checked = withAdCheck(result.results, products)
+    const checked = withAdCheck(result.results, products, brand)
     logCall(context, {
       endpoint: 'batch-listing',
       mode: 'live',
@@ -131,10 +132,10 @@ export async function onRequestPost(context) {
       usage,
       findingsCount: checked.reduce((s, r) => s + r.ad_check.length, 0),
     })
-    return json({ demo: false, usage, results: checked })
+    return json({ demo: false, usage, results: checked, brand_applied: Boolean(brand) })
   } catch (err) {
     const demo = demoResult(products)
     logCall(context, { endpoint: 'batch-listing', mode: 'fallback', startedAt })
-    return json({ ...demo, results: withAdCheck(demo.results, products), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
+    return json({ ...demo, results: withAdCheck(demo.results, products, brand), brand_applied: Boolean(brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

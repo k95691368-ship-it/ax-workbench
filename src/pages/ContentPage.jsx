@@ -4,7 +4,7 @@ import { postJson } from '../lib/api.js'
 import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import ChannelPreview from '../components/ChannelPreview.jsx'
-import { AdCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { AdCheckBadge, BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 
 const GEN_STEPS = [
@@ -189,6 +189,7 @@ export default function ContentPage() {
               <ResultNotice text={result.notice} />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
+                <BrandBadge applied={result.brand_applied} missing={result.brand_missing} />
                 <UsageNote usage={result.usage} />
                 {versions.length > 1 && (
                   <div className="ver-row" role="group" aria-label="생성 버전 선택">

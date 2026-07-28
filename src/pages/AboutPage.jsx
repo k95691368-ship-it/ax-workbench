@@ -90,6 +90,12 @@ const REQUIREMENTS = [
     basis: '제품 1개 → 6개 채널 문법에 맞는 콘텐츠 동시 생성, 채널 목업 미리보기',
   },
   {
+    req: 'AI 활용 기준·가이드 수립 (조직 단위 운영)',
+    proof: '/brand',
+    proofLabel: '브랜드 룰북',
+    basis: '회사 톤·금지어·필수 문구를 1회 정의 → 6개 생성 기능이 자동 준수, 결과물 준수 여부 기계 검증',
+  },
+  {
     req: '반복 업무 효율화 · 직원 AI 사용 교육',
     proof: '/edu',
     proofLabel: 'AI 교육 가이드',

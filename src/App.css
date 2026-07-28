@@ -2371,3 +2371,156 @@
   border-radius: 14px;
   padding: 22px 22px 22px 40px;
 }
+
+/* ===== 브랜드 룰북 ===== */
+.brandbadge {
+  display: inline-block;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.brandbadge.on {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.brandbadge.warn {
+  background: #fef3c7;
+  color: var(--amber-600);
+  cursor: help;
+}
+
+.brandbadge.off {
+  background: var(--page);
+  color: var(--ink-400);
+  border: 1px dashed var(--line);
+  font-weight: 600;
+}
+
+.brandbadge.off:hover {
+  color: var(--blue-600);
+  border-color: var(--blue-500);
+}
+
+.brand-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.brand-status {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.brand-status-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--ink-400);
+  line-height: 1.6;
+}
+
+.brand-block {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.brand-block h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.brand-applies {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 13.5px;
+  line-height: 1.9;
+}
+
+.brand-preview {
+  background: var(--page);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  color: var(--ink-600, #334155);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.brand-why {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--ink-400);
+}
+
+.field-hint {
+  margin: -4px 0 4px;
+  font-size: 12.5px;
+  color: var(--ink-400);
+  line-height: 1.6;
+}
+
+.form-success {
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  color: var(--green-700);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  margin: 4px 0 0;
+}
+
+/* ===== 파일 업로드(엑셀/CSV) ===== */
+.dropzone {
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  background: var(--page);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone.over {
+  border-color: var(--blue-500);
+  background: #eff6ff;
+}
+
+.dropzone-main {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.dropzone-sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-400);
+  line-height: 1.6;
+}
+
+.dropzone-file {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--green-700);
+}

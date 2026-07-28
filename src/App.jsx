@@ -12,6 +12,7 @@ const EduPage = lazy(() => import('./pages/EduPage.jsx'))
 const BatchPage = lazy(() => import('./pages/BatchPage.jsx'))
 const ReviewsPage = lazy(() => import('./pages/ReviewsPage.jsx'))
 const OnboardPage = lazy(() => import('./pages/OnboardPage.jsx'))
+const BrandPage = lazy(() => import('./pages/BrandPage.jsx'))
 
 function App() {
   return (
@@ -79,6 +80,14 @@ function App() {
           element={
             <Suspense fallback={<p className="page-loading">불러오는 중...</p>}>
               <SalesPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/brand"
+          element={
+            <Suspense fallback={<p className="page-loading">불러오는 중...</p>}>
+              <BrandPage />
             </Suspense>
           }
         />

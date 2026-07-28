@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 
 const GEN_STEPS = [
@@ -113,6 +113,7 @@ export default function ReviewsPage() {
               <ResultNotice text={result.notice} />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
+                <BrandBadge applied={result.brand_applied} />
                 <UsageNote usage={result.usage} />
               </div>
 

@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
-import { parseProducts, BATCH_MAX } from '../lib/batchParse.js'
+import { parseProducts, rowsToProducts, productsToText, BATCH_MAX } from '../lib/batchParse.js'
+import { readTabularFile, TABULAR_ACCEPT } from '../lib/tabular.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 
 const GEN_STEPS = [
@@ -20,15 +21,69 @@ const SAMPLE = `데일리 장편한 유산균 30포 | 건강기능식품 > 프�
 
 const csvEsc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`
 
+// 업로드 형식을 알려주기 위한 견본 (엑셀에서 그대로 열린다)
+const TEMPLATE_CSV = `상품명,카테고리,특징
+데일리 장편한 유산균 30포,건강기능식품 > 프로바이오틱스,19종 혼합 유산균 보장균수 100억 CFU
+바삭 곱창돌김 도시락김 16봉,식품 > 김/해조류,남해안 원초 저온 2회 구이`
+
 export default function BatchPage() {
   const [text, setText] = useState(SAMPLE)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState('')
+  const [fileNote, setFileNote] = useState('')
+  const [dragOver, setDragOver] = useState(false)
   const resultRef = useRef(null)
+  const fileRef = useRef(null)
 
   const parsed = useMemo(() => parseProducts(text), [text])
+
+  // 엑셀(.xlsx)·CSV를 그대로 올리면 입력창을 자동으로 채운다 — 실무자가 손으로 옮겨 적지 않도록
+  async function handleFile(file) {
+    if (!file) return
+    setError('')
+    setFileNote('')
+    try {
+      const rows = await readTabularFile(file)
+      const { products, skipped, hasHeader } = rowsToProducts(rows)
+      if (products.length === 0) {
+        setError('상품명을 찾지 못했습니다. 첫 줄을 "상품명, 카테고리, 특징" 헤더로 두거나, 첫 번째 열에 상품명을 넣어주세요.')
+        return
+      }
+      setText(productsToText(products))
+      setFileNote(
+        `${file.name} — 상품 ${products.length}개 인식` +
+          (hasHeader ? ' (헤더 인식됨)' : ' (첫 열을 상품명으로 읽음)') +
+          (skipped > 0 ? ` · 상품명이 빈 ${skipped}행 제외` : '')
+      )
+    } catch (err) {
+      setError(err.message || '파일을 읽지 못했습니다.')
+    }
+  }
+
+  function onFileInput(e) {
+    const file = e.target.files?.[0]
+    // 같은 파일을 다시 골라도 change가 발화하도록 값을 비운다
+    e.target.value = ''
+    handleFile(file)
+  }
+
+  function onDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+    handleFile(e.dataTransfer.files?.[0])
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob(['﻿' + TEMPLATE_CSV], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '상품목록_양식.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   async function generate(e) {
     e.preventDefault()
@@ -88,13 +143,40 @@ export default function BatchPage() {
         <span className="tool-tag">담당업무 A · 연 1,000개 상품 대응</span>
         <h1>대량 등록 도우미</h1>
         <p>
-          신상품 목록을 붙여넣으면 AI 호출 한 번으로 전 상품의 최적화 상품명·키워드·태그를 일괄
-          생성하고, 표시광고 금칙어를 자동 점검합니다. 사람은 플래그가 붙은 상품만 확인하면 됩니다.
+          쓰던 엑셀·CSV 파일을 올리거나 목록을 붙여넣으면, AI 호출 한 번으로 전 상품의 최적화
+          상품명·키워드·태그를 일괄 생성하고 표시광고 금칙어를 자동 점검합니다. 사람은 플래그가 붙은
+          상품만 확인하면 됩니다.
         </p>
       </header>
 
       <div className="tool-layout">
         <form className="tool-form" onSubmit={generate}>
+          <div
+            className={dragOver ? 'dropzone over' : 'dropzone'}
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDragOver(true)
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+          >
+            <p className="dropzone-main">엑셀(.xlsx) · CSV 파일을 여기에 끌어다 놓으세요</p>
+            <p className="dropzone-sub">
+              쓰던 상품 목록 파일을 그대로 올리면 아래 입력창이 자동으로 채워집니다. 파일은 브라우저
+              안에서만 읽고 서버로 보내지 않습니다.
+            </p>
+            <div className="brand-actions" style={{ justifyContent: 'center', marginTop: 10 }}>
+              <button type="button" className="btn-ghost" onClick={() => fileRef.current?.click()}>
+                파일 선택
+              </button>
+              <button type="button" className="btn-ghost" onClick={downloadTemplate}>
+                양식 CSV 내려받기
+              </button>
+            </div>
+            <input ref={fileRef} type="file" accept={TABULAR_ACCEPT} hidden onChange={onFileInput} />
+            {fileNote && <p className="dropzone-file">✓ {fileNote}</p>}
+          </div>
+
           <label>
             상품 목록 — 한 줄에 하나, <code>상품명 | 카테고리 | 특징</code> (카테고리·특징 생략 가능)
             <textarea
@@ -136,6 +218,7 @@ export default function BatchPage() {
               <ResultNotice text={result.notice} />
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
+                <BrandBadge applied={result.brand_applied} />
                 <UsageNote usage={result.usage} />
                 <button type="button" className="btn-ghost" onClick={downloadCsv}>
                   등록용 CSV 다운로드
