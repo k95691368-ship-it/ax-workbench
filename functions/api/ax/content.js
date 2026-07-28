@@ -131,10 +131,15 @@ export async function onRequestPost(context) {
     if (!previous) return errorJson('이전 결과가 없어 피드백을 반영할 수 없습니다. 먼저 생성해주세요.')
   }
 
-  if (!(await verifyTurnstile(env, request)))
-    return errorJson('보안 검증에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.', 403)
-
   const startedAt = Date.now()
+
+  // 보안 검증 실패도 하드 차단하지 않는다 — 예시 결과로 강등하고 사유를 기록한다
+  const guard = await verifyTurnstile(env, request)
+  if (!guard.ok) {
+    logCall(context, { endpoint: 'content', mode: 'unverified', startedAt })
+    const demo = demoResult(channels)
+    return json({ ...demo, results: withAdCheck(demo.results), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
+  }
 
   if (!hasApiKey(env)) {
     const demo = demoResult(channels)

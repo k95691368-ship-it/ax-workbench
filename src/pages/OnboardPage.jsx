@@ -4,7 +4,7 @@ import { PRODUCT_PRESETS, CHANNELS } from '../lib/presets.js'
 import { getTheme } from '../lib/themes.js'
 import { buildHtml, buildBrief, downloadFile, safeFileName } from '../lib/detailHtml.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { UsageNote } from '../components/ResultMeta.jsx'
+import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
 
@@ -292,6 +292,7 @@ export default function OnboardPage() {
 
               {done && anyResult && (
                 <>
+                  <ResultNotice text={detail?.notice || listing?.notice || content?.notice} />
                   <div className="result-toolbar">
                     {isDemo && <DemoBadge />}
                     {hasUsage && <UsageNote usage={totalUsage} />}

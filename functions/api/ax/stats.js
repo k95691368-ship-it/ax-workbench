@@ -32,6 +32,7 @@ export async function onRequestGet(context) {
       output_tokens: live?.output_tokens || 0,
       findings: live?.findings || 0,
       fallback_calls: byMode.fallback?.calls || 0,
+      unverified_calls: byMode.unverified?.calls || 0,
     })
   } catch {
     // 테이블 미생성 등 — 지표 없이도 사이트는 정상 동작해야 한다

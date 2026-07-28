@@ -114,10 +114,15 @@ export async function onRequestPost(context) {
     .map((r) => r.trim().slice(0, 500))
   if (reviews.length === 0) return errorJson('리뷰를 1개 이상 입력해주세요. (한 줄에 하나)')
 
-  if (!(await verifyTurnstile(env, request)))
-    return errorJson('보안 검증에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.', 403)
-
   const startedAt = Date.now()
+
+  // 보안 검증 실패도 하드 차단하지 않는다 — 예시 결과로 강등하고 사유를 기록한다
+  const guard = await verifyTurnstile(env, request)
+  if (!guard.ok) {
+    logCall(context, { endpoint: 'reviews', mode: 'unverified', startedAt })
+    const demo = demoResult(reviews)
+    return json({ ...demo, results: withAdCheck(demo.results), notice: `보안 검증을 완료하지 못해 예시 결과를 표시합니다. (사유: ${guard.codes})` })
+  }
 
   if (!hasApiKey(env)) {
     const demo = demoResult(reviews)
