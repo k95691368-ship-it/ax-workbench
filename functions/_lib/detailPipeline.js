@@ -98,6 +98,7 @@ const MIN_SECTIONS = 2
 // 상세페이지를 2단계로 생성한다.
 // 반환: { result, usage, degraded } — degraded는 일부 섹션이 실패해 빠졌을 때의 안내 문구.
 export async function generateDetail(env, { system, productBlock, outlineTimeoutMs = 55000, sectionTimeoutMs = 40000 }) {
+  const t0 = Date.now()
   const { input: outline, usage: outlineUsage } = await callClaudeTool(env, {
     system,
     user: `[제품 정보]\n${productBlock}\n\n이 제품의 상세페이지 뼈대를 설계하세요. 섹션 본문은 쓰지 말고 계획만 세우세요.`,
@@ -112,19 +113,30 @@ export async function generateDetail(env, { system, productBlock, outlineTimeout
   if (plan.length === 0) throw failure('contract', 'AI 응답이 불완전합니다(섹션 계획 누락). 다시 시도해주세요.')
   outline.section_plan = plan
 
+  const outlineMs = Date.now() - t0
+  const t1 = Date.now()
+
   // 섹션 본문을 동시에 생성한다 — 전체 시간이 "합"이 아니라 "가장 느린 하나"가 된다.
   // 한 섹션이 실패해도 페이지 전체를 버리지 않는다(예전 구조에서는 그랬다).
+  // 각 호출의 개별 소요시간도 재둔다: 합계와 최대값이 비슷하다면 병렬이 실제로는
+  // 직렬로 돌고 있다는 뜻이고, 그건 구조가 아니라 실행 환경의 문제다.
+  const sectionMs = new Array(plan.length).fill(0)
   const settled = await Promise.allSettled(
-    plan.map((_, i) =>
-      callClaudeTool(env, {
+    plan.map((_, i) => {
+      const s = Date.now()
+      return callClaudeTool(env, {
         system,
         user: sectionUserContent(productBlock, outline, i),
         tool: SECTION_TOOL,
         maxTokens: 1024,
         timeoutMs: sectionTimeoutMs,
+      }).finally(() => {
+        sectionMs[i] = Date.now() - s
       })
-    )
+    })
   )
+
+  const sectionsMs = Date.now() - t1
 
   const sections = []
   let sectionUsage = { input_tokens: 0, output_tokens: 0 }
@@ -171,5 +183,12 @@ export async function generateDetail(env, { system, productBlock, outlineTimeout
     degraded: failed
       ? `섹션 ${failed}개는 생성이 지연되어 빠졌습니다. 나머지 ${sections.length}개 섹션은 정상 생성되었습니다.`
       : null,
+    timing: {
+      outline_ms: outlineMs,
+      sections_ms: sectionsMs,
+      section_max_ms: Math.max(0, ...sectionMs),
+      section_sum_ms: sectionMs.reduce((a, b) => a + b, 0),
+      section_count: plan.length,
+    },
   }
 }

@@ -213,6 +213,7 @@ export async function onRequestPost(context) {
     let result
     let usage
     let degraded = null
+    let timing = null
 
     if (previous) {
       const single = await callClaudeTool(env, {
@@ -236,6 +237,7 @@ export async function onRequestPost(context) {
       result = built.result
       usage = built.usage
       degraded = built.degraded
+      timing = built.timing
     }
 
     // 중첩 항목까지 모양을 맞춘다 — 최상위 키만 보면 sections[].body 누락을 놓친다
@@ -243,7 +245,7 @@ export async function onRequestPost(context) {
     const adCheck = adCheckDetail(shaped, brand)
     const factCheck = checkClaims(detailTexts(shaped), [input.name, input.category, input.features, input.target])
     logCall(context, { endpoint: 'detail-page', mode: 'live', startedAt, usage, findingsCount: adCheck.length + factCheck.length })
-    return json({ demo: false, usage, ad_check: adCheck, fact_check: factCheck, input_warning: injected, notice: degraded, ...brandMeta(shaped, brand), ...shaped })
+    return json({ demo: false, usage, timing, ad_check: adCheck, fact_check: factCheck, input_warning: injected, notice: degraded, ...brandMeta(shaped, brand), ...shaped })
   } catch (err) {
     // 외부 AI 장애/지연 시에도 빈 에러 화면 대신 예시 결과로 응답한다
     const demo = demoResult(input)
