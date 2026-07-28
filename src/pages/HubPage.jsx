@@ -9,6 +9,13 @@ const PROOFS = [
 
 const DEMOS = [
   {
+    to: '/onboard',
+    tag: '⚡ 파이프라인 통합',
+    title: '신상품 원클릭 온보딩',
+    desc: '제품 정보를 한 번만 넣으면 상세페이지·상품등록 정보·채널 콘텐츠가 동시에 만들어지고, 표시광고 점검까지 마친 작업 패키지로 묶여 나와요.',
+    featured: true,
+  },
+  {
     to: '/detail-page',
     tag: '담당업무 B · 필수 자격요건',
     title: 'AI 상품 상세페이지 생성기',
@@ -52,7 +59,7 @@ const DEMOS = [
   },
 ]
 
-const PIPELINE = ['실무자 입력', 'AI 생성 (Claude Opus 4.8)', '규정 사전점검', '사람 검수', '발행 · 등록']
+const PIPELINE = ['실무자 입력', 'AI 생성 (Claude Opus 5)', '규정 사전점검', '사람 검수', '발행 · 등록']
 
 export default function HubPage() {
   return (
@@ -108,7 +115,7 @@ export default function HubPage() {
         <h2>기능 7가지 — 채용공고의 담당업무 그대로</h2>
         <div className="hub-grid">
           {DEMOS.map((d) => (
-            <Link key={d.to} to={d.to} className="hub-card">
+            <Link key={d.to} to={d.to} className={d.featured ? 'hub-card featured' : 'hub-card'}>
               <span className="hub-card-tag">{d.tag}</span>
               <h3>{d.title}</h3>
               <p>{d.desc}</p>

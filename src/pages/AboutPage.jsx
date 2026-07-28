@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-// claude-opus-4-8 단가 (USD / 토큰)
+// claude-opus-5 단가 (USD / 토큰)
 const INPUT_PRICE = 5 / 1_000_000
 const OUTPUT_PRICE = 25 / 1_000_000
 
@@ -43,7 +43,7 @@ const PROCESS = [
   {
     step: '구현',
     title: '실제 배포되는 풀스택',
-    body: 'React 19 + Vite 프론트, Cloudflare Pages Functions 백엔드, D1 레이트리밋, Claude Opus 4.8 tool 강제 호출(구조화 JSON 응답). API 키가 없어도 전체 흐름이 시연되도록 샘플 폴백 모드를 설계했습니다.',
+    body: 'React 19 + Vite 프론트, Cloudflare Pages Functions 백엔드, D1 레이트리밋, Claude Opus 5 tool 강제 호출(구조화 JSON 응답). API 키가 없어도 전체 흐름이 시연되도록 샘플 폴백 모드를 설계했습니다.',
   },
   {
     step: '개선 ×5',
@@ -195,7 +195,7 @@ export default function AboutPage() {
             </div>
             <span className="arch-arrow" aria-hidden="true">→</span>
             <div className="arch-box">
-              <strong>Claude Opus 4.8</strong>
+              <strong>Claude Opus 5</strong>
               <span>tool 강제 호출 = 구조화 JSON 보장</span>
             </div>
           </div>

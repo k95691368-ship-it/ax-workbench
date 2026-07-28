@@ -3,6 +3,7 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 
 const MENU = [
   { to: '/', label: '홈', end: true },
+  { to: '/onboard', label: '원클릭 온보딩' },
   { to: '/detail-page', label: '상세페이지' },
   { to: '/content', label: '콘텐츠' },
   { to: '/listing', label: '상품등록' },
@@ -47,6 +48,7 @@ export default function Layout() {
         <div className="footer-grid">
           <div className="footer-col">
             <p className="footer-title">기능 바로가기</p>
+            <Link to="/onboard">신상품 원클릭 온보딩</Link>
             <Link to="/detail-page">상세페이지 생성기</Link>
             <Link to="/content">채널 콘텐츠 팩토리</Link>
             <Link to="/listing">상품등록 최적화</Link>
@@ -65,7 +67,7 @@ export default function Layout() {
           <div className="footer-col">
             <p className="footer-title">기술 스택</p>
             <p className="footer-text">
-              React 19 · Vite · Cloudflare Pages Functions · Cloudflare D1 · Claude Opus 4.8
+              React 19 · Vite · Cloudflare Pages Functions · Cloudflare D1 · Claude Opus 5
               (tool 강제 호출로 구조화 응답)
             </p>
           </div>

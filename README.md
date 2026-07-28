@@ -20,7 +20,7 @@
 ## 기술 스택
 
 - React 19 + Vite, Cloudflare Pages Functions
-- Claude API (`claude-opus-4-8`) — tool 강제 호출로 구조화 JSON 응답
+- Claude API (`claude-opus-5`) — tool 강제 호출로 구조화 JSON 응답
 - Cloudflare D1 — API 레이트리밋
 - 판매 CSV는 브라우저에서만 파싱 (서버 미전송)
 
@@ -55,7 +55,7 @@ master 푸시 시 GitHub Actions(.github/workflows/deploy.yml)가 같은 명령�
 1. Cloudflare 대시보드 → Workers & Pages → **ax-workbench** → Settings → **Variables and secrets** → **+ Add**
 2. Type **Secret**, 이름 `CLAUDE_API_KEY`, 값에 API 키 입력 → 저장
 3. **Bindings**에 D1 바인딩(변수명 `DB`, 데이터베이스 `ax-workbench`)이 있는지 확인, 없으면 + Add로 추가
-4. 재배포(또는 다음 배포)부터 같은 화면이 Claude Opus 4.8 라이브 생성으로 전환됩니다
+4. 재배포(또는 다음 배포)부터 같은 화면이 Claude Opus 5 라이브 생성으로 전환됩니다
 
 ## 문서
 

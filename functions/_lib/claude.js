@@ -1,4 +1,4 @@
-const MODEL = 'claude-opus-4-8'
+const MODEL = 'claude-opus-5'
 
 export function hasApiKey(env) {
   return Boolean(env.CLAUDE_API_KEY)
