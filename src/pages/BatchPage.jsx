@@ -198,7 +198,7 @@ export default function BatchPage() {
             </button>
           </div>
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? '일괄 처리 중... (15~30초)' : `${parsed.products.length}개 상품 일괄 최적화`}
+            {loading ? '일괄 처리 중... (20~50초)' : `${parsed.products.length}개 상품 일괄 최적화`}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>

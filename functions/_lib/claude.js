@@ -6,7 +6,10 @@ export function hasApiKey(env) {
 
 // tool 강제 호출로 구조화된 JSON을 받는 공용 헬퍼.
 // 반환값: { input: tool_use 블록의 input 객체, usage: 토큰 사용량 }
-export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096 }) {
+// timeoutMs: 생성 분량이 많은 기능(상세페이지·채널 콘텐츠)은 더 길게 잡는다.
+// Opus 5는 적응형 사고 토큰까지 생성하므로 긴 산출물은 40초를 넘길 수 있고,
+// 그때 예시 결과로 강등되면 정작 핵심 기능이 라이브로 보이지 않는다.
+export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096, timeoutMs = 40000 }) {
   const apiKey = env.CLAUDE_API_KEY
   if (!apiKey) throw new Error('CLAUDE_API_KEY가 설정되지 않았습니다.')
 
@@ -19,7 +22,8 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
         'anthropic-version': '2023-06-01',
       },
       // 외부 API 지연이 Functions 실행 한도까지 매달리지 않게 타임아웃을 건다
-      signal: AbortSignal.timeout(40000),
+      // (Cloudflare 엣지 자체 한도는 약 100초라 그보다 넉넉히 아래로 둔다)
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,

@@ -395,7 +395,7 @@ export default function DetailPage() {
                     }}
                   />
                   <button type="button" className="btn-primary" disabled={revising || !feedback.trim()} onClick={() => revise(feedback)}>
-                    {revising ? '반영 중... (10~20초)' : '피드백 반영'}
+                    {revising ? '반영 중... (30~60초)' : '피드백 반영'}
                   </button>
                 </div>
                 {revising && <p className="fb-status" aria-live="polite">이전 결과를 기억한 채로 피드백을 반영하고 있어요...</p>}

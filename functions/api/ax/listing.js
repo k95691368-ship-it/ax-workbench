@@ -129,6 +129,7 @@ export async function onRequestPost(context) {
       user: `[제품 정보]\n${JSON.stringify(input, null, 2)}`,
       tool: TOOL,
       maxTokens: 4096,
+      timeoutMs: 60000,
     })
     ensureContract(result, {
       arrays: ['titles', 'search_keywords', 'tags', 'category_paths', 'compliance_notes'],

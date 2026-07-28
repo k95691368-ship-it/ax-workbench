@@ -154,6 +154,7 @@ export async function onRequestPost(context) {
       user: `[고객 리뷰 (${reviews.length}건)]\n${reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\n모든 리뷰에 대해 순서대로 분류·답변·에스컬레이션 판단을 기록하세요.`,
       tool: TOOL,
       maxTokens: 8192,
+      timeoutMs: 70000,
     })
     ensureContract(result, { arrays: ['results'] })
     result.results = result.results

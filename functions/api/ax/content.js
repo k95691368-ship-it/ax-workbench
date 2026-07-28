@@ -180,6 +180,7 @@ export async function onRequestPost(context) {
       user: userContent,
       tool: TOOL,
       maxTokens: 16000,
+      timeoutMs: 85000,
     })
     ensureContract(result, { arrays: ['results'] })
     result.results = result.results.filter(

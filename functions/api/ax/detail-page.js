@@ -200,6 +200,7 @@ export async function onRequestPost(context) {
       user: userContent,
       tool: TOOL,
       maxTokens: 4096,
+      timeoutMs: 75000,
     })
     ensureContract(result, {
       arrays: ['sections', 'faq', 'keywords'],

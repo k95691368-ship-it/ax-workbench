@@ -249,7 +249,7 @@ export default function OnboardPage() {
           </label>
 
           <button type="submit" className="btn-primary" disabled={running}>
-            {running ? '온보딩 진행 중... (20~40초)' : '온보딩 패키지 생성'}
+            {running ? '온보딩 진행 중... (30~70초)' : '온보딩 패키지 생성'}
           </button>
           <p className="onboard-cost-note">
             한 번 실행에 AI 호출 3회가 동시에 발생합니다 (상세페이지 · 상품등록 · 콘텐츠).

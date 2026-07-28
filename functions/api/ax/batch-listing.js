@@ -118,6 +118,7 @@ export async function onRequestPost(context) {
       user: `[상품 목록 (${products.length}개)]\n${JSON.stringify(products, null, 2)}\n\n목록의 모든 상품에 대해 각각 결과를 기록하세요.`,
       tool: TOOL,
       maxTokens: 8192,
+      timeoutMs: 70000,
     })
     ensureContract(result, { arrays: ['results'] })
     result.results = result.results

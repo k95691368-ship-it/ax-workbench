@@ -95,7 +95,7 @@ export default function ReviewsPage() {
             </button>
           </div>
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? '일괄 응대 작성 중... (15~30초)' : `${reviews.length}건 일괄 응대 작성`}
+            {loading ? '일괄 응대 작성 중... (20~50초)' : `${reviews.length}건 일괄 응대 작성`}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>

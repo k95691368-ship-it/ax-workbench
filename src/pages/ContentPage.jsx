@@ -173,7 +173,7 @@ export default function ContentPage() {
           </fieldset>
 
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? '생성 중... (10~30초)' : `${selected.length}개 채널 콘텐츠 생성`}
+            {loading ? '생성 중... (30~70초)' : `${selected.length}개 채널 콘텐츠 생성`}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
@@ -275,7 +275,7 @@ export default function ContentPage() {
                     }}
                   />
                   <button type="button" className="btn-primary" disabled={revising || !feedback.trim()} onClick={() => revise(feedback)}>
-                    {revising ? '반영 중... (10~30초)' : '피드백 반영'}
+                    {revising ? '반영 중... (30~70초)' : '피드백 반영'}
                   </button>
                 </div>
                 {revising && <p className="fb-status" aria-live="polite">모든 채널에 피드백을 일관 반영하고 있어요...</p>}
