@@ -58,8 +58,11 @@ function channelsOf(init) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('채널 콘텐츠 — 묶음 단위 동시 생성', () => {
-  it('채널을 묶음 크기로 나눈다', () => {
-    expect(chunkChannels(CHANNELS).map((g) => g.length)).toEqual([CHANNEL_CHUNK, CHANNEL_CHUNK])
+  it('채널을 묶음 크기로 나누고 어느 채널도 빠뜨리지 않는다', () => {
+    const groups = chunkChannels(CHANNELS)
+    expect(groups.flat()).toEqual(CHANNELS)
+    expect(groups).toHaveLength(Math.ceil(CHANNELS.length / CHANNEL_CHUNK))
+    expect(groups.every((g) => g.length <= CHANNEL_CHUNK)).toBe(true)
     expect(chunkChannels(['instagram'])).toEqual([['instagram']])
   })
 
@@ -78,8 +81,8 @@ describe('채널 콘텐츠 — 묶음 단위 동시 생성', () => {
       })
     )
     const { results, timing, failed } = await generateChannels(ENV, CALL)
-    expect(timing.calls).toBe(2)
-    expect(peak).toBe(2)
+    expect(timing.calls).toBe(chunkChannels(CHANNELS).length)
+    expect(peak).toBe(chunkChannels(CHANNELS).length)
     expect(failed).toEqual([])
     expect(results.map((r) => r.channel).sort()).toEqual([...CHANNELS].sort())
   })
@@ -94,20 +97,24 @@ describe('채널 콘텐츠 — 묶음 단위 동시 생성', () => {
       })
     )
     const { results, failed } = await generateChannels(ENV, CALL)
-    expect(failed.sort()).toEqual(['cardnews', 'threads', 'tiktok'])
-    expect(results.map((r) => r.channel)).toEqual(['instagram', 'blog', 'youtube'])
+    // 실패한 묶음에 속한 채널만 빠지고, 나머지는 그대로 나간다
+    const downGroup = chunkChannels(CHANNELS).find((g) => g.includes('cardnews'))
+    expect(failed.sort()).toEqual([...downGroup].sort())
+    expect(results.map((r) => r.channel)).toEqual(CHANNELS.filter((c) => !downGroup.includes(c)))
   })
 
-  it('묶음이 일부 채널만 돌려주면 빠진 채널을 알려준다', async () => {
+  it('응답에서 특정 채널이 빠지면 그 채널만 알려준다', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, init) => {
-        const chs = channelsOf(init).slice(0, 2)
+        // AI가 tiktok만 빠뜨린 상황 (묶음 크기와 무관하게 성립한다)
+        const chs = channelsOf(init).filter((c) => c !== 'tiktok')
         return apiResponse({ results: chs.map((c) => ({ channel: c, title: `${c} 제목`, body: `${c} 본문` })) })
       })
     )
-    const { failed } = await generateChannels(ENV, CALL)
-    expect(failed).toHaveLength(2)
+    const { results, failed } = await generateChannels(ENV, CALL)
+    expect(failed).toEqual(['tiktok'])
+    expect(results.map((r) => r.channel)).toEqual(CHANNELS.filter((c) => c !== 'tiktok'))
   })
 
   it('요청하지 않은 채널이 섞여 오면 버린다', async () => {
@@ -154,6 +161,8 @@ describe('채널 콘텐츠 — 묶음 단위 동시 생성', () => {
     })
     const first = prompts.find((p) => p.includes('- instagram:'))
     expect(first).toContain('인스타 이전')
-    expect(first).not.toContain('틱톡 이전')
+    // 같은 묶음이 아닌 채널의 이전 원고는 섞이지 않는다
+    const sameGroup = chunkChannels(CHANNELS).find((g) => g.includes('instagram'))
+    if (!sameGroup.includes('tiktok')) expect(first).not.toContain('틱톡 이전')
   })
 })
