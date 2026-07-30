@@ -51,7 +51,13 @@ export default function BatchPage() {
   useEffect(() => {
     const entry = location.state?.restore
     if (!entry?.result) return
-    if (typeof entry.input === 'string') setText(entry.input)
+    if (typeof entry.input === 'string') {
+      setText(entry.input)
+      // sent도 함께 복원한다. 비워 두면 재생성이 카테고리·특징 없이 상품명만 보내고,
+      // 서버가 features='' 로 input_check를 다시 계산해 "원문 수정 필요" 경고가
+      // 조용히 사라진다 — 입력창에는 금칙어가 그대로 남아 있는데 통과로 보인다.
+      setSent(parseProducts(entry.input).products)
+    }
     setResult(entry.result)
     navigate(location.pathname, { replace: true, state: null })
   }, [location, navigate])

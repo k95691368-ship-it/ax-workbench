@@ -19,9 +19,20 @@ export const FEATURES = {
 // 결과 하나에 남아 있는 규정 위반 총 건수 (항목별 결과까지 합산)
 export function countViolations(result) {
   if (!result || typeof result !== 'object') return 0
-  let n = (result.ad_check?.length || 0) + (result.brand_missing?.length || 0)
-  for (const r of result.results || []) {
-    n += (r?.ad_check?.length || 0) + (r?.brand_missing?.length || 0)
+
+  // 항목별 결과가 있으면 **행에서만** 센다.
+  //
+  // 서버는 행 단위 누락을 모아 최상위 집계로도 함께 내보낸다(같은 값이 두 곳에 있다).
+  // 둘을 더하면 누락 1건이 2건으로, 3건이 4건으로 보인다 — 이력 화면의 "검출된 규정 위반"
+  // 합계와 행별 배지가 실제보다 크게 표시됐다.
+  const rows = result.results || []
+  let n = 0
+  if (rows.length > 0) {
+    for (const r of rows) {
+      n += (r?.ad_check?.length || 0) + (r?.brand_missing?.length || 0)
+    }
+  } else {
+    n += (result.ad_check?.length || 0) + (result.brand_missing?.length || 0)
   }
   // 온보딩처럼 여러 기능의 결과를 한 묶음으로 담은 경우까지 합산한다
   for (const key of ['detail', 'listing', 'content']) {

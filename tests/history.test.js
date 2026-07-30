@@ -94,14 +94,17 @@ describe('생성 이력 저장·복원', () => {
 })
 
 describe('countViolations (이력에 남길 위반 건수)', () => {
-  it('결과 최상위와 항목별 검출을 모두 합산한다', () => {
+  it('항목별 결과가 있으면 행에서만 센다 (최상위는 같은 값의 합집합이라 중복이다)', () => {
+    // 이 테스트는 예전에 4를 기대했다 — 최상위 2건 + 행 2건.
+    // 그런데 서버는 행 단위 누락을 모아 최상위 집계로도 함께 내보내므로,
+    // 둘을 더하면 같은 위반을 두 번 세는 것이다. 실제 위반은 행에 있는 2건이다.
     expect(
       countViolations({
         ad_check: [{ word: '1위' }],
         brand_missing: ['필수 문구'],
         results: [{ ad_check: [{ word: '최고' }] }, { brand_missing: ['문구2'] }],
       })
-    ).toBe(4)
+    ).toBe(2)
   })
 
   it('온보딩처럼 여러 기능을 묶은 결과도 합산한다', () => {
@@ -117,5 +120,41 @@ describe('countViolations (이력에 남길 위반 건수)', () => {
   it('위반이 없거나 결과가 없으면 0', () => {
     expect(countViolations({ ad_check: [] })).toBe(0)
     expect(countViolations(null)).toBe(0)
+  })
+})
+
+describe('규정 위반 건수를 중복으로 세지 않는다', () => {
+  it('서버가 행 단위 누락을 최상위에도 담아 보내도 한 번만 센다', () => {
+    // 리뷰 응대 응답 모양: 행에 brand_missing이 있고 최상위는 그 합집합이다
+    const result = {
+      brand_missing: ['무료배송'],
+      results: [
+        { reply: 'a', brand_missing: ['무료배송'] },
+        { reply: 'b' },
+      ],
+    }
+    // 실제 위반은 1건 (예전에는 2건으로 표시됐다)
+    expect(countViolations(result)).toBe(1)
+  })
+
+  it('누락 답변이 3건이면 3건으로 센다', () => {
+    const result = {
+      brand_missing: ['무료배송'],
+      results: [1, 2, 3].map(() => ({ brand_missing: ['무료배송'] })),
+    }
+    expect(countViolations(result)).toBe(3)
+  })
+
+  it('항목별 결과가 없는 응답(상세페이지)은 최상위로 센다', () => {
+    expect(countViolations({ ad_check: [{ word: '치료' }], brand_missing: ['무료배송'] })).toBe(2)
+  })
+
+  it('온보딩 묶음은 기능별로 합산한다', () => {
+    const bundle = {
+      detail: { ad_check: [{ word: '치료' }] },
+      listing: { ad_check: [{ word: '최고' }] },
+      content: { results: [{ ad_check: [{ word: '1위' }] }] },
+    }
+    expect(countViolations(bundle)).toBe(3)
   })
 })

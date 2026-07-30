@@ -132,8 +132,24 @@ export async function onRequestPost(context) {
   // 브랜드 룰북(사용자 브라우저에 저장된 회사 규정) — 없으면 null
   const brand = sanitizeBrand(body.brand)
 
-  // 프롬프트 주입 의심 표현 — 요청을 막지 않고 데이터 격리로 무력화한 뒤 사람에게 알린다
-  const injected = injectionNotice(detectInjection([input.name, input.features, input.target, input.tone, feedback]))
+  // 프롬프트 주입 의심 표현 — 요청을 막지 않고 데이터 격리로 무력화한 뒤 사람에게 알린다.
+  //
+  // 재생성에서는 previous(이전 원고)도 요청 본문에서 온다. 섹션 8개 × 본문 600자까지
+  // 허용되는, 훨씬 길고 지시문을 심기 쉬운 자리인데 검사 대상에서 빠져 있었다.
+  // 격리는 파이프라인이 하고(userDataJson), 경고는 여기서 띄운다.
+  const previousTexts = previous
+    ? [
+        previous.headline,
+        previous.subheadline,
+        previous.designer_notes,
+        ...previous.sections.flatMap((s) => [s.title, s.body, ...(s.bullets || [])]),
+        ...previous.faq.flatMap((f) => [f.q, f.a]),
+        ...previous.keywords,
+      ]
+    : []
+  const injected = injectionNotice(
+    detectInjection([input.name, input.features, input.target, input.tone, feedback, ...previousTexts])
+  )
 
   const startedAt = Date.now()
 

@@ -135,3 +135,26 @@ describe('서버 재생성 모드', () => {
     expect(violatingTargets(data.results)).toEqual([])
   })
 })
+
+describe('재생성 병합 — 해결되지 않은 경고를 지우지 않는다', () => {
+  it('입력 원문 점검은 새 응답에 없으면 이전 값을 유지한다', () => {
+    // input_check는 "입력 원문에 이미 있던 표현"이라 재생성으로 해결되지 않는다.
+    // 행을 통째로 교체하면 경고가 조용히 사라져 "원문 수정 필요 0개"로 보였다.
+    const results = [
+      { input_name: '상품A', title: '이전', ad_check: [{ word: '치료' }], input_check: [{ word: '면역력 치료' }] },
+    ]
+    const fixed = [{ input_name: '상품A', title: '새 제목', ad_check: [], input_check: [] }]
+    const merged = mergeFixed(results, fixed, [{ index: 0 }])
+    expect(merged[0].title).toBe('새 제목')
+    expect(merged[0].ad_check).toEqual([])
+    // 입력 원문 경고는 남아 있어야 한다
+    expect(merged[0].input_check).toHaveLength(1)
+  })
+
+  it('새 응답에 입력 점검 결과가 있으면 그것을 쓴다', () => {
+    const results = [{ input_name: 'A', input_check: [{ word: '이전' }] }]
+    const fixed = [{ input_name: 'A', input_check: [{ word: '새로' }, { word: '둘' }] }]
+    const merged = mergeFixed(results, fixed, [{ index: 0 }])
+    expect(merged[0].input_check).toHaveLength(2)
+  })
+})

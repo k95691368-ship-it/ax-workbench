@@ -111,6 +111,11 @@ export default function ReviewsPage() {
       const next = {
         ...result,
         results: merged,
+        // 상단 배지는 행 단위 결과에서 다시 집계한다. 예전에는 최초 생성 당시의 목록을
+        // 그대로 들고 있어서, "위반이 모두 해소됐습니다"와 "필수 문구 1건 누락"이
+        // 같은 화면에 동시에 떴다. 부분 재작성에도 정확하려면 행에서 다시 세야 한다.
+        brand_applied: data.brand_applied ?? result.brand_applied,
+        brand_missing: [...new Set(merged.flatMap((r) => r.brand_missing || []))],
         usage: sumUsage(result.usage, data.usage),
         demo: result.demo || data.demo,
         notice: data.notice || result.notice,

@@ -42,8 +42,17 @@ export function mergeFixed(results, fixedResults, targets) {
   ;(fixedResults || []).forEach((row, i) => {
     const at = targets[i]?.index
     if (at == null || !row) return
-    // 상품이 뒤바뀌는 사고를 막기 위해 원래 상품명을 유지한다
-    next[at] = { ...row, input_name: next[at]?.input_name || row.input_name }
+    const prev = next[at]
+    next[at] = {
+      ...row,
+      // 상품이 뒤바뀌는 사고를 막기 위해 원래 상품명을 유지한다
+      input_name: prev?.input_name || row.input_name,
+      // input_check는 "입력 원문에 이미 있던 표현"이라 재생성으로 해결되지 않는다.
+      // 그런데 행을 통째로 교체하면 새 응답에 그 값이 없을 때 경고가 조용히 사라진다 —
+      // 입력창에는 금칙어가 그대로 남아 있는데 화면은 "원문 수정 필요 0개"로 바뀐다.
+      // 해결되지 않은 문제를 해결된 것처럼 보이게 하는 것이 가장 나쁜 실패다.
+      input_check: row.input_check?.length ? row.input_check : prev?.input_check,
+    }
   })
   return next
 }

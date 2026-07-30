@@ -20,6 +20,7 @@
 
 import { callClaudeTool, failure } from './claude.js'
 import { runAll, sumUsage, withUsage } from './parallel.js'
+import { userDataJson } from './promptSafety.js'
 
 // 상세페이지 5단 구성. 각 섹션의 범위가 겹치지 않도록 역할을 명확히 나눈다.
 export const SECTION_BLUEPRINT = [
@@ -251,7 +252,7 @@ export async function reviseDetail(env, { system, systemWithRequired = system, p
 ${productBlock}
 
 [이전 결과 — 헤드라인과 부속 정보]
-${JSON.stringify({
+${userDataJson('이전 결과', {
   headline: previous.headline,
   subheadline: previous.subheadline,
   faq: previous.faq,
@@ -280,7 +281,7 @@ ${productBlock}
 ${outline}
 
 [지금 고칠 섹션의 이전 원고]
-${JSON.stringify(s)}
+${userDataJson('이전 원고', s)}
 
 [사용자 피드백]
 ${feedback}
