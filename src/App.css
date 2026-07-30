@@ -2736,3 +2736,20 @@
   font-weight: 700;
   line-height: 1.5;
 }
+
+/* 예시로 채운 행 — AI 생성이 실패해 규칙 템플릿으로 채운 자리. 라이브 결과와 반드시 구분되어야 한다 */
+.batch-row-filled {
+  background: #fffbeb;
+}
+
+.row-filled {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #fde68a;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: help;
+}

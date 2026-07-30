@@ -143,3 +143,69 @@ describe('행 정렬 정합성 — 상품과 결과가 뒤바뀌지 않아야 �
     expect(rows.map((r) => r.title)).toEqual(['상품0 최적화', '상품1 최적화', '상품2 최적화'])
   })
 })
+
+describe('중복 응답이 다른 상품 자리를 차지하지 않는다', () => {
+  it('같은 상품을 두 번 쓰고 하나를 빠뜨린 응답에서 행이 섞이지 않는다', async () => {
+    // 감사 재현: A를 두 번, B를 빠뜨림 → 예전에는 남은 A안2가 B 자리에 들어가
+    // "입력 상품명: 상품1 / 최적화 상품명: 상품0 안2"가 됐고 CSV째로 등록됐다.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        apiResponse([
+          { input_name: '상품0', title: '상품0 안1', alt_title: 'a', keywords: [], tags: [] },
+          { input_name: '상품0', title: '상품0 안2', alt_title: 'a', keywords: [], tags: [] },
+          { input_name: '상품2', title: '상품2 최적화', alt_title: 'a', keywords: [], tags: [] },
+        ])
+      )
+    )
+    const { rows, failedCount } = await generateBatch(ENV, { system: 's', products: products(3) })
+    expect(rows.map((r) => r.input_name)).toEqual(['상품0', '상품1', '상품2'])
+    expect(rows[0].title).toBe('상품0 안1')
+    // 상품1 자리에 상품0의 중복 응답이 오면 안 된다 — 예시로 채워야 한다
+    expect(rows[1].title).not.toContain('상품0')
+    expect(rows[1].filled).toBe(true)
+    expect(rows[2].title).toBe('상품2 최적화')
+    expect(failedCount).toBe(1)
+  })
+
+  it('이름이 깨진 응답은 여전히 남은 자리로 구제한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        apiResponse([
+          { input_name: '', title: '이름없는 결과', alt_title: 'a', keywords: [], tags: [] },
+          { input_name: '상품1', title: '상품1 최적화', alt_title: 'a', keywords: [], tags: [] },
+        ])
+      )
+    )
+    const { rows } = await generateBatch(ENV, { system: 's', products: products(2) })
+    expect(rows[0].title).toBe('이름없는 결과')
+    expect(rows[1].title).toBe('상품1 최적화')
+  })
+})
+
+describe('예시로 채운 행은 라이브 결과와 구분된다', () => {
+  it('부분 실패로 채운 행에 filled 표시가 붙는다', async () => {
+    let call = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        if (call++ === 1) throw new Error('down')
+        return apiResponse(rowsFor(JSON.parse(init.body)))
+      })
+    )
+    const { rows } = await generateBatch(ENV, { system: 's', products: products(15) })
+    const filled = rows.filter((r) => r.filled)
+    const live = rows.filter((r) => !r.filled)
+    expect(filled).toHaveLength(CHUNK_SIZE)
+    expect(live).toHaveLength(10)
+    // 라이브 행에는 표시가 붙지 않아야 한다 (거짓 경고 방지)
+    expect(live.every((r) => r.filled === undefined)).toBe(true)
+  })
+
+  it('전부 라이브면 어떤 행에도 표시가 없다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => apiResponse(rowsFor(JSON.parse(init.body)))))
+    const { rows } = await generateBatch(ENV, { system: 's', products: products(10) })
+    expect(rows.some((r) => r.filled)).toBe(false)
+  })
+})

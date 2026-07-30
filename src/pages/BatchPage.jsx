@@ -186,13 +186,16 @@ export default function BatchPage() {
   }
 
   function downloadCsv() {
-    const header = ['원래 상품명', '최적화 상품명', '대안 상품명', '검색 키워드', '등록 태그', '생성 문구 점검', '입력 원문 점검']
+    // '생성 방식' 컬럼을 반드시 넣는다 — 부분 실패로 예시로 채운 행이 라이브 결과와
+    // 똑같이 보이면, 규칙 템플릿 문구를 AI 최적화 결과로 믿고 그대로 등록하게 된다.
+    const header = ['원래 상품명', '최적화 상품명', '대안 상품명', '검색 키워드', '등록 태그', '생성 방식', '생성 문구 점검', '입력 원문 점검']
     const rows = result.results.map((r) => [
       r.input_name,
       r.title,
       r.alt_title,
       (r.keywords || []).join(' '),
       (r.tags || []).join(' '),
+      r.filled ? '예시로 채움 (AI 생성 실패 — 확인 후 재생성 필요)' : 'AI 생성',
       r.ad_check?.length ? `주의 ${r.ad_check.length}건: ${r.ad_check.map((f) => f.word).join(', ')}` : '통과',
       r.input_check?.length
         ? `원문 수정 필요 ${r.input_check.length}건: ${r.input_check.map((f) => f.word).join(', ')}`
@@ -360,10 +363,21 @@ export default function BatchPage() {
                   </thead>
                   <tbody>
                     {result.results.map((r, i) => (
-                      <tr key={i} className={r.ad_check?.length ? 'batch-row-flagged' : ''}>
+                      <tr
+                        key={i}
+                        className={
+                          r.filled ? 'batch-row-filled' : r.ad_check?.length ? 'batch-row-flagged' : ''
+                        }
+                      >
                         <td className="batch-input-name">
                           {r.input_name}
                           {fixedRows.includes(i) && <span className="row-refixed">재생성됨</span>}
+                          {/* 예시로 채운 행 — 라이브 결과와 구분되지 않으면 그대로 등록된다 */}
+                          {r.filled && (
+                            <span className="row-filled" title="이 행은 AI 생성이 실패해 규칙 기반 예시 문구로 채웠습니다. 확인 후 다시 생성하세요.">
+                              예시로 채움
+                            </span>
+                          )}
                         </td>
                         <td>
                           <div className="batch-title-cell">

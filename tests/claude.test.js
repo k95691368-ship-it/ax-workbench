@@ -220,7 +220,7 @@ describe('재시도 예산 — 상행 호출이 늘어 청구가 배로 뛰지 �
     const timeouts = []
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (_url, init) => {
+      vi.fn(async () => {
         // AbortSignal.timeout(ms)로 만든 signal에서 남은 시간을 직접 읽을 수 없으므로
         // doFetch에 전달된 예산을 간접 확인한다: 호출 시점의 경과 시간으로 판단
         timeouts.push(Date.now())

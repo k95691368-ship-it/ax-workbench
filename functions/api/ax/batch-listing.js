@@ -59,7 +59,10 @@ const SYSTEM = `당신은 오픈마켓 상품 대량 등록 담당자입니다. 
 3. 제품 정보에 없는 속성을 지어내지 마세요.
 ${COMPLIANCE_RULES}${DATA_GUARD}`
 
-function demoResult(products) {
+// filled=true로 부르면 각 행에 "예시로 채움" 표시를 남긴다.
+// 부분 실패로 끼워 넣은 행이 라이브 결과와 똑같이 보이면, 사용자는 규칙 템플릿 문구를
+// AI 최적화 결과로 믿고 CSV째로 오픈마켓에 등록한다 — 반드시 구분되어야 한다.
+function demoResult(products, { filled = false } = {}) {
   return {
     demo: true,
     results: products.map((p) => {
@@ -74,6 +77,7 @@ function demoResult(products) {
       const tokens = strip(p.name).split(/\s+/).filter(Boolean)
       return {
         input_name: p.name,
+        ...(filled ? { filled: true } : {}),
         title: strip(`${p.name}${p.category ? ` ${p.category.split('>').pop().trim()}` : ''} 인기 상품`).slice(0, 50),
         alt_title: `${tokens.slice(0, 3).join(' ')} 추천 베스트`.slice(0, 50),
         keywords: [...new Set([...tokens, ...(p.category ? p.category.split(/[>\s]+/).filter(Boolean) : [])])].slice(0, 5),
@@ -134,15 +138,30 @@ function alignRows(raw, groupProducts) {
     (r) => r && typeof r.title === 'string' && r.title.trim()
   )
 
-  // 1차: 상품명이 일치하는 자리에 놓는다
+  const groupKeys = groupProducts.map((p) => squashName(p.name))
+
+  // 1차: 상품명이 일치하는 빈 자리에 놓는다.
+  //
+  // "중복 응답"과 "이름이 깨진 응답"을 반드시 구분해야 한다. 예전에는 둘을 함께
+  // unmatched로 밀어 2차에서 아무 빈 자리에 채웠다. 그래서 모델이 A를 두 번 쓰고 B를
+  // 빠뜨리면, 남은 A 응답이 **B 자리**에 들어가고 행 식별자는 B 이름으로 덮여
+  // "입력 상품명: B / 최적화 상품명: A안2"가 됐다. 그 CSV를 그대로 오픈마켓에 올린다.
+  // alignRows가 막으려던 사고(다른 상품명 부착)가 이 경로로 되살아난 것이다.
   const unmatched = []
   for (const r of usable) {
     const key = squashName(r.input_name)
     const at = key
-      ? groupProducts.findIndex((p, i) => slots[i] === null && squashName(p.name) === key)
+      ? groupProducts.findIndex((p, i) => slots[i] === null && groupKeys[i] === key)
       : -1
-    if (at === -1) unmatched.push(r)
-    else slots[at] = r
+    if (at !== -1) {
+      slots[at] = r
+      continue
+    }
+    // 그룹에 있는 이름인데 그 자리가 이미 찼다면 중복 응답이다 — 버린다.
+    // (그 자리는 null로 남겨 예시 결과로 채우고, 안내에도 잡히게 한다)
+    if (key && groupKeys.includes(key)) continue
+    // 그룹의 어떤 상품명과도 맞지 않는 것만 = echo가 깨진 응답 → 위치로 구제한다
+    unmatched.push(r)
   }
   // 2차: 이름으로 못 맞춘 것은 남은 자리에 앞에서부터 채운다
   for (const r of unmatched) {
@@ -188,7 +207,8 @@ export async function generateBatch(env, { system, products }) {
 
   // 이 묶음(또는 묶음의 남은 자리)을 예시 결과로 채운다
   const fillDemo = (items) => {
-    rows.push(...demoResult(items).results)
+    // 라이브 응답 사이에 끼워 넣는 행이므로 예시임을 행 단위로 표시한다
+    rows.push(...demoResult(items, { filled: true }).results)
     demoFilled += items.length
   }
 
