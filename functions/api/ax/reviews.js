@@ -1,7 +1,7 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
-import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES, failureCode } from '../../_lib/claude.js'
+import { callClaudeTool, ensureContract, hasApiKey, COMPLIANCE_RULES, failureCode, failure } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
@@ -143,6 +143,32 @@ export function normalizeReplies(results) {
       escalate_reason: decided
         ? r.escalate_reason || null
         : 'AI가 판단 값을 남기지 않아 안전하게 담당자 확인으로 분류했습니다.',
+    }
+  })
+}
+
+// AI 응답을 입력 리뷰 순서에 1:1로 맞춘다.
+//
+// 이 정렬이 이 파일에서 가장 위험한 지점이다.
+//   예전에는 쓸 수 없는 항목을 filter로 걸러 배열을 압축했다. 그러면 AI가 2번 리뷰의 답변을
+//   빠뜨린 순간 3번 답변이 2번 자리로 올라온다. 그 뒤에 도는 것들이 전부 어긋난다:
+//     - applyEscalationRules는 reviews[i]로 위험 신호를 검사한다 → 다른 리뷰를 검사하게 된다.
+//       건강 이상을 호소한 고객에게 "감사합니다" 답변이 나갈 수 있다.
+//     - 화면도 reviews[i] 옆에 results[i]를 그린다 → 엉뚱한 답변이 붙어 보인다.
+//   도구 계약이 "입력된 리뷰 순서 그대로"이므로, 압축하지 않고 빈 자리를 그대로 둔다.
+//
+// 빈 자리는 담당자 확인으로 기울여 채운다 — 답변을 만들지 못한 리뷰를 조용히 넘기는 것보다
+// 사람에게 올리는 편이 안전하다.
+export function alignReplies(raw, reviews) {
+  const list = Array.isArray(raw) ? raw : []
+  return reviews.map((_, i) => {
+    const r = list[i]
+    if (r && typeof r.reply === 'string' && r.reply.trim()) return r
+    return {
+      category: '기타',
+      escalate: true,
+      escalate_reason: 'AI가 이 리뷰의 답변을 만들지 못해 담당자 확인으로 분류했습니다.',
+      reply: SAFE_REPLY,
     }
   })
 }
@@ -304,10 +330,11 @@ export async function onRequestPost(context) {
       timeoutMs: 70000,
     })
     ensureContract(result, { arrays: ['results'] })
-    result.results = normalizeReplies(
-      result.results.filter((r) => r && typeof r.reply === 'string').slice(0, reviews.length)
-    )
-    if (result.results.length === 0) throw new Error('AI 응답이 불완전합니다. 다시 시도해주세요.')
+    // 쓸 수 있는 답변이 하나도 없으면 예시 결과로 강등한다.
+    // (정렬은 alignReplies가 맡는다 — 압축하면 답변이 다른 리뷰로 밀린다)
+    const usable = result.results.filter((r) => r && typeof r.reply === 'string' && r.reply.trim())
+    if (usable.length === 0) throw failure('contract', 'AI 응답이 불완전합니다. 다시 시도해주세요.')
+    result.results = normalizeReplies(alignReplies(result.results, reviews))
     const checked = withChecks(result.results, reviews, brand)
     logCall(context, {
       endpoint: 'reviews',

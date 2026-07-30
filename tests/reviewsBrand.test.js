@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { onRequestPost, normalizeReplies } from '../functions/api/ax/reviews.js'
+import { onRequestPost, normalizeReplies, alignReplies, applyEscalationRules } from '../functions/api/ax/reviews.js'
 
 // API 키 없이 호출하면 예시 응답 경로를 타므로, 룰북 점검 로직만 독립적으로 검증할 수 있다.
 async function callReviews(body) {
@@ -95,5 +95,41 @@ describe('AI 응답 필드 누락에 대한 안전장치', () => {
 
   it('알 수 없는 분류는 기타로 떨어뜨린다 (화면이 깨지지 않게)', () => {
     expect(normalizeReplies([{ reply: 'a', category: '이상한분류', escalate: false }])[0].category).toBe('기타')
+  })
+})
+
+describe('리뷰-답변 정렬 정합성 (가장 위험한 어긋남)', () => {
+  const reviews = ['맛있어요 재구매합니다', '먹고 두드러기가 나서 병원 다녀왔어요', '배송이 빨라요']
+
+  it('AI가 중간 답변을 빠뜨려도 답변이 다른 리뷰로 밀리지 않는다', () => {
+    // 리뷰 3건인데 AI가 2건만 돌려준 상황
+    const out = alignReplies([{ reply: '감사합니다', escalate: false, category: '칭찬' }, null], reviews)
+    expect(out).toHaveLength(3)
+    expect(out[0].reply).toBe('감사합니다')
+    // 2번 리뷰(건강 이상)의 자리에 3번 답변이 밀려오면 안 된다
+    expect(out[1].reply).not.toBe('감사합니다')
+  })
+
+  it('빠진 자리는 담당자 확인으로 기울여 채운다 (fail-safe)', () => {
+    const out = alignReplies([{ reply: '감사합니다', escalate: false, category: '칭찬' }], reviews)
+    expect(out[1].escalate).toBe(true)
+    expect(out[2].escalate).toBe(true)
+    expect(out[1].escalate_reason).toContain('만들지 못')
+  })
+
+  it('밀림이 없으면 에스컬레이션 규칙이 올바른 리뷰에 걸린다', () => {
+    const aligned = alignReplies(
+      [
+        { reply: '감사합니다', escalate: false, category: '칭찬' },
+        null,
+        { reply: '감사합니다', escalate: false, category: '칭찬' },
+      ],
+      reviews
+    )
+    const out = applyEscalationRules(aligned, reviews)
+    // 건강 이상을 호소한 2번 리뷰가 올라가야 한다 (1번·3번은 칭찬)
+    expect(out[1].escalate).toBe(true)
+    expect(out[0].escalate).toBe(false)
+    expect(out[2].escalate).toBe(false)
   })
 })
