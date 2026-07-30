@@ -95,8 +95,14 @@ export async function onRequestPost(context) {
     return json(demoResult(compact))
   }
 
-  if (!(await checkRateLimit(env, 'ax:daily:all', 300, 86400)))
-    return json({ ...demoResult(compact), notice: '오늘의 라이브 생성 예산이 소진되어 예시 결과를 표시합니다.' })
+  // 다른 5개 엔드포인트는 USD 기준 예산 상한을 쓰는데 이 파일만 옛 "하루 300회" 상한이
+  // 남아 있었다. 회수 상한은 호출당 비용 차이를 반영하지 못하므로, 예산이 소진된 뒤에도
+  // 여기로는 계속 지출이 나갈 수 있었다 — 같은 기준으로 통일한다.
+  const budget = await checkDailyBudget(env)
+  if (!budget.ok) {
+    logCall(context, { endpoint: 'sales-report', mode: 'demo', startedAt, reason: 'budget' })
+    return json({ ...demoResult(compact), notice: budgetNotice(budget) })
+  }
 
   // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다
   const limited = async (bucket, max, opts) => !(await checkRateLimit(env, bucket, max, 3600, opts))

@@ -9,7 +9,7 @@ import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
 import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
-import { runAll, sumUsage } from '../../_lib/parallel.js'
+import { runAll, sumUsage, chunk as chunkBy } from '../../_lib/parallel.js'
 
 // 한 번에 처리하는 상품 수.
 //
@@ -22,11 +22,8 @@ import { runAll, sumUsage } from '../../_lib/parallel.js'
 export const MAX_PRODUCTS = 20
 export const CHUNK_SIZE = 5
 
-export function chunk(items, size = CHUNK_SIZE) {
-  const out = []
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
-  return out
-}
+// 묶는 방식 자체는 공용(parallel.js) — 여기서는 "몇 개씩"만 정한다
+export const chunk = (items, size = CHUNK_SIZE) => chunkBy(items, size)
 
 const TOOL = {
   name: 'record_batch_listing',
@@ -120,20 +117,52 @@ ${userDataJson('상품 목록', products)}
 - previous를 그대로 되풀이하지 마세요. 검색 노출에 유리한 다른 키워드 조합을 찾으세요.`
 }
 
-// 한 묶음의 응답을 화면이 기대하는 모양으로 맞춘다.
-// input_name은 화면의 행 식별자이자 재생성 대상 매칭 기준이라, AI 응답을 믿지 않고
-// 우리가 보낸 상품명으로 확정한다 (상품이 뒤바뀌는 사고 방지).
-function shapeRows(raw, groupProducts) {
-  return (Array.isArray(raw) ? raw : [])
-    .filter((r) => r && typeof r.title === 'string' && r.title.trim())
-    .slice(0, groupProducts.length)
-    .map((r, i) => ({
-      input_name: groupProducts[i]?.name || (typeof r.input_name === 'string' ? r.input_name : ''),
-      title: r.title,
-      alt_title: typeof r.alt_title === 'string' ? r.alt_title : '',
-      keywords: Array.isArray(r.keywords) ? r.keywords.filter((k) => typeof k === 'string') : [],
-      tags: Array.isArray(r.tags) ? r.tags.filter((k) => typeof k === 'string') : [],
-    }))
+const squashName = (s) => String(s || '').replace(/\s+/g, '').toLowerCase()
+
+// AI 응답을 우리가 보낸 상품 순서에 맞춰 배치한다.
+// 반환: groupProducts와 같은 길이의 배열. 짝을 찾지 못한 자리는 null.
+//
+// 왜 이렇게까지 하나:
+//   예전에는 쓸 수 없는 항목을 filter로 걸러낸 뒤 map((r, i) => products[i])로 이름을 붙였다.
+//   그러면 중간 항목 하나가 걸러지는 순간 뒤 행이 한 칸씩 밀려 **다른 상품의 이름이 붙는다**.
+//   대량 등록에서 이건 엉뚱한 상품명으로 등록되는 사고다. 순서를 신뢰할 수 없는 응답에
+//   위치로 이름을 붙이는 방식 자체가 위험했다.
+//   그래서 AI가 되돌려준 input_name으로 먼저 짝을 맞추고, 이름으로 못 맞춘 것만 남은 자리에 넣는다.
+function alignRows(raw, groupProducts) {
+  const slots = Array.from({ length: groupProducts.length }, () => null)
+  const usable = (Array.isArray(raw) ? raw : []).filter(
+    (r) => r && typeof r.title === 'string' && r.title.trim()
+  )
+
+  // 1차: 상품명이 일치하는 자리에 놓는다
+  const unmatched = []
+  for (const r of usable) {
+    const key = squashName(r.input_name)
+    const at = key
+      ? groupProducts.findIndex((p, i) => slots[i] === null && squashName(p.name) === key)
+      : -1
+    if (at === -1) unmatched.push(r)
+    else slots[at] = r
+  }
+  // 2차: 이름으로 못 맞춘 것은 남은 자리에 앞에서부터 채운다
+  for (const r of unmatched) {
+    const at = slots.indexOf(null)
+    if (at === -1) break
+    slots[at] = r
+  }
+
+  return slots.map((r, i) =>
+    r === null
+      ? null
+      : {
+          // 행 식별자는 AI 응답이 아니라 우리가 보낸 상품명으로 확정한다
+          input_name: groupProducts[i].name,
+          title: r.title,
+          alt_title: typeof r.alt_title === 'string' ? r.alt_title : '',
+          keywords: Array.isArray(r.keywords) ? r.keywords.filter((k) => typeof k === 'string') : [],
+          tags: Array.isArray(r.tags) ? r.tags.filter((k) => typeof k === 'string') : [],
+        }
+  )
 }
 
 // 상품을 묶음으로 나눠 동시에 생성한다.
@@ -167,19 +196,22 @@ export async function generateBatch(env, { system, products }) {
     const group = groups[gi]
     if (res.status !== 'fulfilled') return fillDemo(group)
 
-    let shaped = []
+    let aligned = []
     try {
       ensureContract(res.value.input, { arrays: ['results'] })
-      shaped = shapeRows(res.value.input.results, group)
+      aligned = alignRows(res.value.input.results, group)
     } catch {
       return fillDemo(group)
     }
-    if (shaped.length === 0) return fillDemo(group)
+    if (aligned.every((r) => r === null)) return fillDemo(group)
 
     liveGroups += 1
-    rows.push(...shaped)
-    // 묶음 안에서 일부 상품이 빠졌으면 그 자리만 예시로 채운다 (행 수와 순서를 지킨다)
-    if (shaped.length < group.length) fillDemo(group.slice(shaped.length))
+    // 빠진 상품은 "그 상품의 자리"에 예시 결과를 넣는다.
+    // 뒤에 몰아서 채우면 행과 상품이 어긋나므로 반드시 제자리에 넣어야 한다.
+    aligned.forEach((r, i) => {
+      if (r) rows.push(r)
+      else fillDemo([group[i]])
+    })
   })
 
   // 전부 실패했을 때만 예외를 던져 기존 폴백 경로로 넘긴다
@@ -228,7 +260,7 @@ export async function onRequestPost(context) {
   }
 
   // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
-  const budget = await checkDailyBudget(env)
+  const budget = await checkDailyBudget(env, undefined, { calls: chunk(products).length })
   if (!budget.ok) {
     const demo = demoResult(products)
     return json({ ...demo, results: withAdCheck(demo.results, products, brand), brand_applied: Boolean(brand), notice: budgetNotice(budget) })

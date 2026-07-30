@@ -9,7 +9,7 @@ import { sanitizeBrand, brandPrompt, missingRequired } from '../../_lib/brand.js
 import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
 import { normalizeDetail } from '../../_lib/shape.js'
-import { generateDetail, reviseDetail } from '../../_lib/detailPipeline.js'
+import { generateDetail, reviseDetail, SECTION_BLUEPRINT } from '../../_lib/detailPipeline.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
 
 function detailTexts(result) {
@@ -153,7 +153,10 @@ export async function onRequestPost(context) {
 
   // 전역 일일 예산 캡 — 소진 시 서비스를 끊는 대신 예시 결과로 우아하게 강등
   // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
-  const budget = await checkDailyBudget(env)
+  // 이번 요청이 만들 호출 수를 함께 넘긴다 — 한 요청이 여러 호출을 하므로,
+  // 이미 쓴 금액만 보면 그 요청분만큼 상한을 넘겨 버린다.
+  const plannedCalls = 1 + (previous ? previous.sections.length : SECTION_BLUEPRINT.length)
+  const budget = await checkDailyBudget(env, undefined, { calls: plannedCalls })
   if (!budget.ok) {
     const demo = demoResult(input)
     return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: budgetNotice(budget) })

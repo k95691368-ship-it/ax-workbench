@@ -89,3 +89,57 @@ describe('대량 등록 — 묶음 병렬 처리', () => {
     expect(usage.output_tokens).toBe(200)
   })
 })
+
+describe('행 정렬 정합성 — 상품과 결과가 뒤바뀌지 않아야 한다', () => {
+  it('AI가 중간 상품을 빠뜨려도 남은 결과가 밀려 붙지 않는다', async () => {
+    // 상품0,1,2를 보냈는데 AI가 상품1을 빠뜨리고 0,2만 돌려준 상황
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        apiResponse([
+          { input_name: '상품0', title: '상품0 최적화', alt_title: 'a', keywords: [], tags: [] },
+          { input_name: '상품2', title: '상품2 최적화', alt_title: 'a', keywords: [], tags: [] },
+        ])
+      )
+    )
+    const { rows, failedCount } = await generateBatch(ENV, { system: 's', products: products(3) })
+    expect(rows).toHaveLength(3)
+    expect(rows.map((r) => r.input_name)).toEqual(['상품0', '상품1', '상품2'])
+    // 상품2의 결과가 상품1 자리로 밀려오면 안 된다
+    expect(rows[1].title).not.toContain('상품2')
+    expect(rows[2].title).toBe('상품2 최적화')
+    expect(failedCount).toBe(1)
+  })
+
+  it('제목이 깨진 항목이 앞에 있어도 뒤 상품이 밀리지 않는다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        apiResponse([
+          { input_name: '상품0', title: '   ' },
+          { input_name: '상품1', title: '상품1 최적화', alt_title: 'a', keywords: [], tags: [] },
+          { input_name: '상품2', title: '상품2 최적화', alt_title: 'a', keywords: [], tags: [] },
+        ])
+      )
+    )
+    const { rows } = await generateBatch(ENV, { system: 's', products: products(3) })
+    expect(rows.map((r) => r.input_name)).toEqual(['상품0', '상품1', '상품2'])
+    expect(rows[1].title).toBe('상품1 최적화')
+    expect(rows[2].title).toBe('상품2 최적화')
+  })
+
+  it('AI가 순서를 바꿔 돌려줘도 상품명 기준으로 제자리에 놓는다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        apiResponse([
+          { input_name: '상품2', title: '상품2 최적화', alt_title: 'a', keywords: [], tags: [] },
+          { input_name: '상품0', title: '상품0 최적화', alt_title: 'a', keywords: [], tags: [] },
+          { input_name: '상품1', title: '상품1 최적화', alt_title: 'a', keywords: [], tags: [] },
+        ])
+      )
+    )
+    const { rows } = await generateBatch(ENV, { system: 's', products: products(3) })
+    expect(rows.map((r) => r.title)).toEqual(['상품0 최적화', '상품1 최적화', '상품2 최적화'])
+  })
+})

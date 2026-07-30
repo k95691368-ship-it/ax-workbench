@@ -8,6 +8,15 @@
 // 그래서 실행 방식은 여기 한 곳에 두고, 각 기능은 "무엇을 보낼지"와
 // "실패했을 때 무엇으로 대신할지"만 정한다.
 
+// 항목을 size개씩 묶는다.
+// 대량 등록(상품)과 채널 콘텐츠(채널)가 같은 코드를 각자 갖고 있었다 — 한 곳에 둔다.
+export function chunk(items, size) {
+  const step = Math.max(1, size)
+  const out = []
+  for (let i = 0; i < items.length; i += step) out.push(items.slice(i, i + step))
+  return out
+}
+
 // tasks: () => Promise<{ input, usage }> 배열
 // 반환: { settled, timing } — settled는 Promise.allSettled 결과 그대로
 export async function runAll(tasks) {

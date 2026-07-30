@@ -15,7 +15,8 @@ const strList = (v, max, count) =>
 
 export function normalizeDetail(result) {
   const sections = arr(result.sections)
-    .filter((s) => s && typeof s.title === 'string' && typeof s.body === 'string')
+    // 빈 문자열도 typeof는 'string'이라 통과한다 — 제목·본문이 실제로 있는지까지 본다
+    .filter((s) => s && typeof s.title === 'string' && s.title.trim() && typeof s.body === 'string' && s.body.trim())
     .slice(0, 8)
     .map((s) => ({
       title: str(s.title, 120),
@@ -43,23 +44,35 @@ export function normalizeDetail(result) {
 }
 
 export function normalizeChannelContents(results, allowedChannels) {
-  const normalized = arr(results)
-    .filter(
-      (r) =>
-        r &&
-        typeof r.channel === 'string' &&
-        typeof r.title === 'string' &&
-        typeof r.body === 'string' &&
-        r.body.trim() &&
-        allowedChannels.includes(r.channel)
-    )
-    .slice(0, allowedChannels.length)
-    .map((r) => ({
-      channel: r.channel,
-      title: str(r.title, 200),
-      body: str(r.body, 4000),
-      hashtags: strList(r.hashtags, 40, 15),
-    }))
+  const usable = arr(results).filter(
+    (r) =>
+      r &&
+      typeof r.channel === 'string' &&
+      typeof r.title === 'string' &&
+      typeof r.body === 'string' &&
+      r.body.trim() &&
+      allowedChannels.includes(r.channel)
+  )
+
+  // 채널당 하나만 남긴다. 같은 채널이 두 번 오면 화면에 같은 카드가 두 개 뜬다.
+  // 개수 제한(slice)만으로는 중복이 걸러지지 않는다.
+  // 출력 순서는 응답 순서가 아니라 **사용자가 요청한 채널 순서**로 맞춘다.
+  const byChannel = new Map()
+  for (const r of usable) {
+    if (!byChannel.has(r.channel)) byChannel.set(r.channel, r)
+  }
+
+  const normalized = allowedChannels
+    .filter((c) => byChannel.has(c))
+    .map((c) => {
+      const r = byChannel.get(c)
+      return {
+        channel: c,
+        title: str(r.title, 200),
+        body: str(r.body, 4000),
+        hashtags: strList(r.hashtags, 40, 15),
+      }
+    })
 
   if (normalized.length === 0) {
     throw failure('contract', 'AI 응답에 사용할 수 있는 채널 콘텐츠가 없습니다. 다시 시도해주세요.')

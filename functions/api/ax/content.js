@@ -10,7 +10,7 @@ import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNoti
 import { failureCode } from '../../_lib/claude.js'
 import { normalizeChannelContents } from '../../_lib/shape.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
-import { runAll, sumUsage } from '../../_lib/parallel.js'
+import { runAll, sumUsage, chunk as chunkBy } from '../../_lib/parallel.js'
 
 function withAdCheck(results, brand) {
   for (const r of results) {
@@ -128,11 +128,7 @@ const CHANNELS_TOOL = {
 // 값은 남겨둔다 — 모델이나 채널 스펙이 바뀌면 다시 재서 조정할 자리이기 때문이다.
 export const CHANNEL_CHUNK = 1
 
-export function chunkChannels(channels, size = CHANNEL_CHUNK) {
-  const out = []
-  for (let i = 0; i < channels.length; i += size) out.push(channels.slice(i, i + size))
-  return out
-}
+export const chunkChannels = (channels, size = CHANNEL_CHUNK) => chunkBy(channels, size)
 
 function groupUserContent({ product, group, channels, previous, feedback }) {
   const specs = group.map((c) => `- ${c}: ${CHANNEL_SPECS[c]}`).join('\n')
@@ -256,7 +252,7 @@ export async function onRequestPost(context) {
   }
 
   // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
-  const budget = await checkDailyBudget(env)
+  const budget = await checkDailyBudget(env, undefined, { calls: chunkChannels(channels).length })
   if (!budget.ok) {
     const demo = demoResult(channels)
     return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: budgetNotice(budget) })

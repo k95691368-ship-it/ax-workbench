@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { scanText, ALLOWED_PHRASES } from '../src/lib/compliance.js'
 import { checkClaims, checkPromises } from '../src/lib/factCheck.js'
 import { normalizeDetail, normalizeChannelContents, normalizeListing } from '../functions/_lib/shape.js'
-import { checkDailyBudget, costOf } from '../functions/_lib/budget.js'
+import { checkDailyBudget, costOf, budgetNotice, RESERVE_PER_CALL_USD } from '../functions/_lib/budget.js'
 
 describe('금칙어 매칭 — 우회 표기 차단', () => {
   it('띄어쓰기·가운뎃점으로 쪼갠 금칙어도 잡는다', () => {
@@ -176,5 +176,75 @@ describe('일일 예산 상한 (회수가 아닌 실제 지출)', () => {
     const r = await checkDailyBudget({ DB: broken }, 3)
     expect(r.ok).toBe(true)
     expect(r.available).toBe(false)
+  })
+})
+
+describe('예산 상한 — 요청이 만들 호출 수까지 감안한다', () => {
+  const dbWith = (input, output) => ({
+    prepare: () => ({ first: async () => ({ input_tokens: input, output_tokens: output }) }),
+  })
+
+  it('남은 예산이 이번 요청 예상 비용보다 적으면 미리 막는다', async () => {
+    // 이미 $2.90 지출 · 남은 여유 $0.10 → 6호출(약 $0.18)짜리 요청은 통과시키면 상한을 넘긴다
+    const env = { DB: dbWith(0, 116_000) }
+    expect((await checkDailyBudget(env, 3, { calls: 1 })).ok).toBe(true)
+    expect((await checkDailyBudget(env, 3, { calls: 6 })).ok).toBe(false)
+  })
+
+  it('예약분을 함께 돌려줘 왜 막혔는지 알 수 있다', async () => {
+    const r = await checkDailyBudget({ DB: dbWith(0, 116_000) }, 3, { calls: 6 })
+    expect(r.reserve).toBeCloseTo(6 * RESERVE_PER_CALL_USD)
+  })
+
+  it('호출 수를 안 넘기면 1회분만 예약한다 (기존 호출부와 호환)', async () => {
+    const r = await checkDailyBudget({ DB: dbWith(0, 0) }, 3)
+    expect(r.ok).toBe(true)
+    expect(r.reserve).toBeCloseTo(RESERVE_PER_CALL_USD)
+  })
+
+  it('안내 문구가 자정이 아니라 롤링 창임을 말한다', () => {
+    const notice = budgetNotice({ limit: 3 })
+    expect(notice).toContain('최근 24시간')
+    expect(notice).not.toContain('자정')
+  })
+})
+
+describe('채널 콘텐츠 정규화 — 중복과 순서', () => {
+  const row = (channel, title) => ({ channel, title, body: `${channel} 본문` })
+
+  it('같은 채널이 두 번 오면 하나만 남긴다 (화면에 같은 카드가 두 개 뜨지 않게)', () => {
+    const out = normalizeChannelContents(
+      [row('instagram', '첫 번째'), row('instagram', '두 번째'), row('blog', 'B')],
+      ['instagram', 'blog']
+    )
+    expect(out).toHaveLength(2)
+    expect(out.filter((r) => r.channel === 'instagram')).toHaveLength(1)
+    expect(out.find((r) => r.channel === 'instagram').title).toBe('첫 번째')
+  })
+
+  it('응답 순서가 아니라 사용자가 요청한 채널 순서로 돌려준다', () => {
+    const out = normalizeChannelContents(
+      [row('youtube', 'Y'), row('instagram', 'I'), row('blog', 'B')],
+      ['instagram', 'blog', 'youtube']
+    )
+    expect(out.map((r) => r.channel)).toEqual(['instagram', 'blog', 'youtube'])
+  })
+})
+
+describe('상세페이지 정규화 — 빈 문자열 방어', () => {
+  it('제목이나 본문이 빈 문자열인 섹션은 버린다', () => {
+    const out = normalizeDetail({
+      headline: 'H',
+      subheadline: 'S',
+      sections: [
+        { title: '정상', body: '본문' },
+        { title: '', body: '본문' },
+        { title: '제목', body: '   ' },
+      ],
+      faq: [],
+      keywords: [],
+      designer_notes: 'N',
+    })
+    expect(out.sections).toHaveLength(1)
   })
 })
