@@ -7,6 +7,10 @@ import GenProgress from '../components/GenProgress.jsx'
 import { pushHistory } from '../lib/history.js'
 import { violatingTargets, buildReviewFixPayload, mergeFixed, sumUsage } from '../lib/fixTargets.js'
 
+// 서버(functions/api/ax/reviews.js의 MAX_REVIEWS)와 같은 값이어야 한다 —
+// 프론트가 더 많이 보내면 뒤 리뷰가 조용히 잘려 답변 없이 사라진다.
+const MAX_REVIEWS = 8
+
 const GEN_STEPS = [
   '리뷰를 유형별로 분류하고 있어요',
   '유형에 맞는 답변 초안을 쓰고 있어요',
@@ -43,19 +47,25 @@ export default function ReviewsPage() {
   const [fixedRows, setFixedRows] = useState([])
   const [fixNote, setFixNote] = useState('')
 
+  // 입력 텍스트 → 리뷰 배열. 생성 시점과 복원 시점이 같은 규칙을 쓰도록 한 곳에 둔다.
+  const splitReviews = (t) =>
+    String(t || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, MAX_REVIEWS)
+
   // 생성 이력에서 복원
   useEffect(() => {
     const entry = location.state?.restore
     if (!entry?.result) return
-    if (typeof entry.input === 'string') setText(entry.input)
+    if (typeof entry.input === 'string') {
+      setText(entry.input)
+      // sent도 함께 채운다. 비워 두면 복원 화면에서 리뷰 원문이 안 나오고,
+      // "위반 답변만 다시 쓰기"가 빈 리뷰를 보내 400으로 실패한다.
+      setSent(splitReviews(entry.input))
+    }
     setResult(entry.result)
     navigate(location.pathname, { replace: true, state: null })
   }, [location, navigate])
 
-  const reviews = useMemo(
-    () => text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 8),
-    [text]
-  )
+  const reviews = useMemo(() => splitReviews(text), [text])
 
   async function generate(e) {
     e.preventDefault()
@@ -238,7 +248,11 @@ export default function ReviewsPage() {
                         {copied === `r${i}` ? '✓' : '답변 복사'}
                       </button>
                     </div>
-                    <p className="review-original">“{reviews[i]}”</p>
+                    {/* 반드시 sent[i](요청에 실제로 보낸 리뷰)를 쓴다.
+                        입력창을 실시간으로 다시 계산한 reviews[i]를 쓰면, 결과를 읽는 중에
+                        입력을 고치면 카드가 밀려 건강 이상 호소 답변이 다른 리뷰 밑에 붙는다.
+                        담당자가 화면 기준으로 "답변 복사"를 누르면 엉뚱한 고객에게 나간다. */}
+                    <p className="review-original">“{sent[i] ?? ''}”</p>
                     <p className="review-reply">{r.reply}</p>
                     {r.escalate && r.escalate_reason && (
                       <p className="escalate-reason">에스컬레이션 사유: {r.escalate_reason}</p>

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
-import { parseCsv, normalizeSales, aggregate, weekdayAverages } from '../lib/csv.js'
+import { parseCsv, normalizeSales, aggregate, weekdayAverages, skippedNotice } from '../lib/csv.js'
 import { readTabularFile, TABULAR_ACCEPT } from '../lib/tabular.js'
 import { SAMPLE_CSV } from '../lib/sampleSales.js'
 import DemoBadge from '../components/DemoBadge.jsx'
@@ -133,6 +133,7 @@ export default function SalesPage() {
   const [records, setRecords] = useState(null)
   const [channel, setChannel] = useState('all')
   const [error, setError] = useState('')
+  const [skipNote, setSkipNote] = useState(null)
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(false)
   const [copiedMd, setCopiedMd] = useState(false)
@@ -160,9 +161,13 @@ export default function SalesPage() {
     setChannel('all')
     channelRef.current = 'all'
     try {
-      setRecords(normalizeSales(rows))
+      const parsed = normalizeSales(rows)
+      setRecords(parsed)
+      // 조용히 버린 행이 있으면 알린다 — 모르면 총매출이 왜 파일과 다른지 알 수 없다
+      setSkipNote(skippedNotice(parsed))
     } catch (err) {
       setRecords(null)
+      setSkipNote(null)
       setError(err.message)
     }
   }
@@ -256,6 +261,8 @@ export default function SalesPage() {
         <span className="sales-hint">필요 컬럼: 날짜, 채널, 상품명, 수량, 매출액</span>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}
+      {/* 집계에서 빠진 행을 알린다 — 조용히 버리면 총매출이 파일과 달라도 이유를 알 수 없다 */}
+      {skipNote && <p className="skip-note">{skipNote}</p>}
 
       {summary && (
         <>

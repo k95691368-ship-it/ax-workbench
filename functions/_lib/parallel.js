@@ -50,6 +50,17 @@ export async function runAll(tasks) {
 // "쓸 수 있는 결과만" 세지 않는다는 점이 중요하다. 응답이 와서 토큰을 소비했다면
 // 그 결과를 버렸더라도 비용은 이미 발생했다. 화면의 비용 표시가 실제 청구보다
 // 작아 보이면 안 된다.
+// 이미 청구된 사용량을 오류에 실어 보낸다.
+//
+// 병렬 구조에서는 일부 호출이 성공해 토큰을 소비한 뒤에도 전체가 실패할 수 있다
+// (프레임만 실패, 남은 섹션이 최소치 미만 등). 그때 예외만 던지면 catch의 logCall에
+// usage가 없어 ai_calls에 NULL로 남고, 예산은 그 지출을 0으로 집계한다.
+// 상한이 "실제 지출"로 막는다는 전제가 바로 여기서 깨진다 — 청구는 됐는데 계측에는 없다.
+export function withUsage(err, settled) {
+  err.usage = sumUsage(settled)
+  return err
+}
+
 export function sumUsage(settled) {
   let input_tokens = 0
   let output_tokens = 0

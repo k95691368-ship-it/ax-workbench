@@ -16,10 +16,43 @@ export function decodeCsvBuffer(buffer) {
 
 // "2026/07/13", "2026.7.3" 등 흔한 날짜 표기를 ISO(YYYY-MM-DD)로 정규화.
 // 인식할 수 없는 형식은 원문 그대로 반환한다(해당 행은 요일 집계에서만 제외).
+// 엑셀은 날짜를 1899-12-30 기준 일수(시리얼)로 저장한다 — 2026-07-13은 46216이다.
+// xlsx 리더는 셀 서식을 해석하지 않고 <v>를 원문 그대로 넘기므로, 날짜 서식 열은
+// '46216' 같은 숫자 문자열로 도착한다. 이걸 그대로 두면 조회 기간이 "46216 ~ 46217"로
+// 표시되고, 요일 집계는 전부 NaN으로 걸러져 차트가 사라지고, AI 리포트는 존재하지 않는
+// 날짜를 근거로 인용한다 — 그런데 오류도 경고도 없다.
+// 범위(1970-01-01 ~ 2149년경)를 벗어난 숫자는 날짜가 아닌 것으로 보고 건드리지 않는다.
+const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30)
+const EXCEL_SERIAL_MIN = 25569 // 1970-01-01
+const EXCEL_SERIAL_MAX = 90000 // 2146년경
+
+export function excelSerialToIso(serial) {
+  const ms = EXCEL_EPOCH_UTC + Math.floor(serial) * 86400000
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return null
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+}
+
 export function normalizeDate(raw) {
-  const m = String(raw).trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/)
-  if (!m) return String(raw).trim()
-  return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  const text = String(raw ?? '').trim()
+  const m = text.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+
+  // 엑셀 날짜 시리얼 (소수점은 시각이므로 버린다)
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    const n = Number(text)
+    if (n >= EXCEL_SERIAL_MIN && n <= EXCEL_SERIAL_MAX) {
+      const iso = excelSerialToIso(n)
+      if (iso) return iso
+    }
+  }
+  return text
+}
+
+// 날짜로 인식된 값인지 — 인식 실패한 행을 조용히 통과시키지 않기 위해 쓴다
+export function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
 }
 
 export function parseCsv(text) {
@@ -82,13 +115,26 @@ export function normalizeSales(rows) {
     if (col[key] === -1) throw new Error(`필수 컬럼을 찾을 수 없습니다: ${aliases[0]} (헤더: ${header.join(', ')})`)
   }
   const records = []
+  // 버린 행을 사유별로 센다. 조용히 버리면 총매출이 실제보다 적게 나오는데
+  // 사용자는 그 사실을 알 방법이 없다 — 화면에 알려주기 위해 함께 돌려준다.
+  const skipped = { dates: 0, numbers: 0 }
   for (const row of rows.slice(1)) {
     // 통화기호(₩,$)·단위(원, 개)·쉼표를 걷어내고 숫자만 남긴다.
     const amountStr = String(row[col.amount]).replace(/[^0-9.-]/g, '')
     const qtyStr = String(row[col.qty]).replace(/[^0-9.-]/g, '')
     const date = normalizeDate(row[col.date])
     // 빈 셀은 0이 아니라 "값 없음"이므로 건너뛴다 (Number('') === 0 함정 방지)
-    if (!date || amountStr === '' || qtyStr === '') continue
+    if (amountStr === '' || qtyStr === '') {
+      skipped.numbers += 1
+      continue
+    }
+    // 날짜 칸이 아예 없으면 String(undefined) === 'undefined'가 되어 !date 가드를 통과한다.
+    // 그러면 date가 'undefined'인 레코드가 집계에 들어가 조회 기간이 'undefined'로 표시된다.
+    // 형식까지 확인해야 그 구멍이 막힌다.
+    if (!isIsoDate(date)) {
+      skipped.dates += 1
+      continue
+    }
     const amount = Number(amountStr)
     const qty = Number(qtyStr)
     if (Number.isNaN(amount) || Number.isNaN(qty)) continue
@@ -101,7 +147,20 @@ export function normalizeSales(rows) {
     })
   }
   if (records.length === 0) throw new Error('유효한 데이터 행이 없습니다. 날짜/수량/매출액 형식을 확인해주세요.')
+  // 배열로 쓰는 기존 호출부를 깨지 않으면서 건너뛴 내역을 함께 전달한다
+  records.skipped = skipped
   return records
+}
+
+// 건너뛴 행을 사람이 읽을 안내 문구로 (없으면 null)
+export function skippedNotice(records) {
+  const s = records?.skipped
+  if (!s) return null
+  const parts = []
+  if (s.dates) parts.push(`날짜 형식을 인식하지 못한 행 ${s.dates}개`)
+  if (s.numbers) parts.push(`수량·금액이 비어 있는 행 ${s.numbers}개`)
+  if (parts.length === 0) return null
+  return `${parts.join(', ')}는 집계에서 제외했습니다. 총매출이 파일 합계와 다를 수 있습니다.`
 }
 
 function sumBy(records, keyFn) {

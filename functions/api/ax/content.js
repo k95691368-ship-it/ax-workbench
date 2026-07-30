@@ -10,7 +10,7 @@ import { DATA_GUARD, userDataBlock, userDataJson, detectInjection, injectionNoti
 import { failureCode } from '../../_lib/claude.js'
 import { normalizeChannelContents } from '../../_lib/shape.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
-import { runAll, sumUsage, chunk as chunkBy } from '../../_lib/parallel.js'
+import { runAll, sumUsage, withUsage, chunk as chunkBy } from '../../_lib/parallel.js'
 
 function withAdCheck(results, brand) {
   for (const r of results) {
@@ -189,7 +189,13 @@ export async function generateChannels(env, { system, product, channels, previou
 
   // 항목 단위 정규화는 기존 계약 검증을 그대로 쓴다.
   // 쓸 수 있는 채널이 하나도 없으면 여기서 계약 위반으로 던져 폴백 경로로 넘어간다.
-  const results = normalizeChannelContents(raw, channels)
+  let results
+  try {
+    results = normalizeChannelContents(raw, channels)
+  } catch (err) {
+    // 성공한 채널 호출의 토큰은 이미 청구됐다 — 예산 집계에 남긴다
+    throw withUsage(err, settled)
+  }
 
   return { results, usage: sumUsage(settled), timing, failed }
 }
@@ -306,7 +312,7 @@ export async function onRequestPost(context) {
     })
   } catch (err) {
     const demo = demoResult(channels)
-    logCall(context, { endpoint: 'content', mode: 'fallback', startedAt, reason: failureCode(err) })
+    logCall(context, { endpoint: 'content', mode: 'fallback', startedAt, reason: failureCode(err), usage: err.usage })
     return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

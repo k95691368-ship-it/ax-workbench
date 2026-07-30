@@ -346,7 +346,7 @@ export async function onRequestPost(context) {
     return json({ demo: false, usage, input_warning: injected, ...checked })
   } catch (err) {
     const demo = demoResult(reviews, fixes)
-    logCall(context, { endpoint: 'reviews', mode: 'fallback', startedAt, reason: failureCode(err) })
+    logCall(context, { endpoint: 'reviews', mode: 'fallback', startedAt, reason: failureCode(err), usage: err.usage })
     return json({ ...demo, input_warning: injected, ...withChecks(demo.results, reviews, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

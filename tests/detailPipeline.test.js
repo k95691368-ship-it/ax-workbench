@@ -300,3 +300,29 @@ describe('구성표 역할 분리 (같은 내용을 두 섹션이 되풀이하�
     expect(framePrompt).toContain('되묻지 마세요')
   })
 })
+
+describe('실패해도 이미 청구된 토큰은 계측에 남긴다 (예산 상한이 실제 지출로 막히도록)', () => {
+  it('프레임만 실패해도 성공한 섹션들의 사용량을 오류에 실어 보낸다', async () => {
+    vi.stubGlobal('fetch', mockFetch({ frame: { subheadline: '헤드라인 없음' } }))
+    try {
+      await generateDetail(ENV, CALL)
+      throw new Error('여기 오면 안 된다')
+    } catch (err) {
+      // 섹션 N개 + 프레임 1개가 모두 응답했으므로 토큰은 이미 청구됐다
+      expect(err.usage).toBeDefined()
+      expect(err.usage.input_tokens).toBe(100 * (N + 1))
+      expect(err.usage.output_tokens).toBe(50 * (N + 1))
+    }
+  })
+
+  it('섹션이 최소치 미만이어도 소비한 사용량을 잃지 않는다', async () => {
+    vi.stubGlobal('fetch', mockFetch({ fail: [0, 1, 2, 3] }))
+    try {
+      await generateDetail(ENV, CALL)
+      throw new Error('여기 오면 안 된다')
+    } catch (err) {
+      // 실패한 4개는 응답이 없지만, 프레임 + 남은 섹션 1개는 청구됐다
+      expect(err.usage.input_tokens).toBe(200)
+    }
+  })
+})

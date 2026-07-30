@@ -19,7 +19,7 @@
 // 부분 실패 격리: 한 섹션이 실패해도 나머지로 페이지를 완성한다.
 
 import { callClaudeTool, failure } from './claude.js'
-import { runAll, sumUsage } from './parallel.js'
+import { runAll, sumUsage, withUsage } from './parallel.js'
 
 // 상세페이지 5단 구성. 각 섹션의 범위가 겹치지 않도록 역할을 명확히 나눈다.
 export const SECTION_BLUEPRINT = [
@@ -178,9 +178,13 @@ export async function generateDetail(env, { system, systemWithRequired = system,
 
   // 헤드라인이 없으면 상세페이지라고 부를 수 없다 — 프레임 실패는 강등 사유다.
   if (frameResult.status !== 'fulfilled' || typeof frameResult.value.input?.headline !== 'string') {
-    throw frameResult.status === 'rejected'
-      ? frameResult.reason
-      : failure('contract', 'AI 응답이 불완전합니다(헤드라인 누락). 다시 시도해주세요.')
+    // 섹션 호출은 이미 토큰을 썼을 수 있다 — 실제 지출을 예산 집계에 남긴다
+    throw withUsage(
+      frameResult.status === 'rejected'
+        ? frameResult.reason
+        : failure('contract', 'AI 응답이 불완전합니다(헤드라인 누락). 다시 시도해주세요.'),
+      settled
+    )
   }
   const frame = frameResult.value.input
 
@@ -203,7 +207,10 @@ export async function generateDetail(env, { system, systemWithRequired = system,
 
   // 남은 섹션이 너무 적으면 상세페이지 구실을 못 한다 — 이때만 예시 결과로 강등한다.
   if (sections.length < MIN_SECTIONS) {
-    throw failure('section_failed', `섹션 생성에 실패했습니다(${failed}/${SECTION_BLUEPRINT.length}). 다시 시도해주세요.`)
+    throw withUsage(
+      failure('section_failed', `섹션 생성에 실패했습니다(${failed}/${SECTION_BLUEPRINT.length}). 다시 시도해주세요.`),
+      settled
+    )
   }
 
   return {

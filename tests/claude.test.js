@@ -167,3 +167,37 @@ describe('안전 분류기 거절 (오류가 아니라 HTTP 200으로 온다)', 
     }
   })
 })
+
+describe('결과를 못 써도 청구된 토큰은 오류에 실린다', () => {
+  const withUsage = (body) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ...body, usage: { input_tokens: 700, output_tokens: 120 } }),
+    text: async () => JSON.stringify(body),
+  })
+
+  it('max_tokens로 잘린 응답도 사용량을 남긴다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => withUsage({ stop_reason: 'max_tokens', content: [] })))
+    try {
+      await callClaudeTool(ENV, CALL)
+    } catch (err) {
+      expect(err.usage).toEqual({ input_tokens: 700, output_tokens: 120 })
+    }
+  })
+
+  it('거절·파싱 실패도 사용량을 남긴다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => withUsage({ stop_reason: 'refusal', content: [] })))
+    try {
+      await callClaudeTool(ENV, CALL)
+    } catch (err) {
+      expect(err.usage.input_tokens).toBe(700)
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => withUsage({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'x' }] })))
+    try {
+      await callClaudeTool(ENV, CALL)
+    } catch (err) {
+      expect(failureCode(err)).toBe('no_tool_use')
+      expect(err.usage.input_tokens).toBe(700)
+    }
+  })
+})

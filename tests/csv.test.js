@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, normalizeSales, aggregate, normalizeDate, decodeCsvBuffer, weekdayAverages } from '../src/lib/csv.js'
+import { parseCsv, normalizeSales, aggregate, normalizeDate, decodeCsvBuffer, weekdayAverages, skippedNotice } from '../src/lib/csv.js'
 import { SAMPLE_CSV } from '../src/lib/sampleSales.js'
 
 describe('decodeCsvBuffer', () => {
@@ -104,5 +104,54 @@ describe('aggregate', () => {
 
   it('샘플 데이터의 품절 급감일(7/21)을 이상치로 감지한다', () => {
     expect(summary.anomalies.some((a) => a.date === '2026-07-21' && a.direction === 'drop')).toBe(true)
+  })
+})
+
+describe('엑셀 날짜 시리얼', () => {
+  it('날짜 서식 셀(시리얼 숫자)을 ISO 날짜로 바꾼다', () => {
+    // 감사에서 실제 xlsx로 재현: 날짜 열이 46216 같은 숫자로 도착했다
+    expect(normalizeDate('46216')).toBe('2026-07-13')
+    expect(normalizeDate('46217')).toBe('2026-07-14')
+    // 소수부(시각)는 버린다
+    expect(normalizeDate('45658.5')).toBe('2025-01-01')
+    // 경계: 시리얼 하한이 1970-01-01
+    expect(normalizeDate('25569')).toBe('1970-01-01')
+  })
+
+  it('날짜가 아닌 숫자는 건드리지 않는다 (수량·금액 오인 방지)', () => {
+    expect(normalizeDate('100')).toBe('100')
+    expect(normalizeDate('999999')).toBe('999999')
+    expect(normalizeDate('상품A')).toBe('상품A')
+  })
+
+  it('기존 표기도 그대로 처리한다', () => {
+    expect(normalizeDate('2026/07/13')).toBe('2026-07-13')
+    expect(normalizeDate('2026.7.3')).toBe('2026-07-03')
+  })
+})
+
+describe('집계에서 빠진 행을 조용히 넘기지 않는다', () => {
+  const rows = [
+    ['날짜', '채널', '상품명', '수량', '매출액'],
+    ['46216', '스마트스토어', '김', '2', '12,000'],
+    ['', '몰', '김', '1', '5000'],
+    ['2026-07-14', '몰', '김', '', '3000'],
+  ]
+
+  it('날짜 없는 행이 date="undefined"로 집계에 들어가지 않는다', () => {
+    const r = normalizeSales(rows)
+    expect(r).toHaveLength(1)
+    expect(r.every((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.date))).toBe(true)
+  })
+
+  it('버린 행을 사유별로 알려준다', () => {
+    const note = skippedNotice(normalizeSales(rows))
+    expect(note).toContain('날짜 형식을 인식하지 못한 행 1개')
+    expect(note).toContain('수량·금액이 비어 있는 행 1개')
+  })
+
+  it('버릴 게 없으면 안내하지 않는다', () => {
+    const clean = [rows[0], rows[1]]
+    expect(skippedNotice(normalizeSales(clean))).toBeNull()
   })
 })

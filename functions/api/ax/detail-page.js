@@ -215,7 +215,7 @@ export async function onRequestPost(context) {
   } catch (err) {
     // 외부 AI 장애/지연 시에도 빈 에러 화면 대신 예시 결과로 응답한다
     const demo = demoResult(input)
-    logCall(context, { endpoint: 'detail-page', mode: 'fallback', startedAt, reason: failureCode(err) })
+    logCall(context, { endpoint: 'detail-page', mode: 'fallback', startedAt, reason: failureCode(err), usage: err.usage })
     return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

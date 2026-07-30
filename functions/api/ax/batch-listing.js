@@ -9,7 +9,7 @@ import { sanitizeBrand, brandPrompt } from '../../_lib/brand.js'
 import { DATA_GUARD, userDataJson, detectInjection, injectionNotice } from '../../_lib/promptSafety.js'
 import { failureCode } from '../../_lib/claude.js'
 import { checkClaims } from '../../../src/lib/factCheck.js'
-import { runAll, sumUsage, chunk as chunkBy } from '../../_lib/parallel.js'
+import { runAll, sumUsage, withUsage, chunk as chunkBy } from '../../_lib/parallel.js'
 
 // 한 번에 처리하는 상품 수.
 //
@@ -215,7 +215,10 @@ export async function generateBatch(env, { system, products }) {
   })
 
   // 전부 실패했을 때만 예외를 던져 기존 폴백 경로로 넘긴다
-  if (liveGroups === 0) throw failure('contract', 'AI 응답이 불완전합니다. 다시 시도해주세요.')
+  if (liveGroups === 0) {
+    // 응답이 왔지만 쓸 수 없었던 묶음의 토큰도 이미 청구됐다
+    throw withUsage(failure('contract', 'AI 응답이 불완전합니다. 다시 시도해주세요.'), settled)
+  }
 
   return { rows, usage: sumUsage(settled), failedCount: demoFilled, timing }
 }
@@ -306,7 +309,7 @@ export async function onRequestPost(context) {
     })
   } catch (err) {
     const demo = demoResult(products)
-    logCall(context, { endpoint: 'batch-listing', mode: 'fallback', startedAt, reason: failureCode(err) })
+    logCall(context, { endpoint: 'batch-listing', mode: 'fallback', startedAt, reason: failureCode(err), usage: err.usage })
     return json({ ...demo, results: withAdCheck(demo.results, products, brand), brand_applied: Boolean(brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

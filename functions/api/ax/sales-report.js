@@ -140,7 +140,7 @@ export async function onRequestPost(context) {
     logCall(context, { endpoint: 'sales-report', mode: 'live', startedAt, usage })
     return json({ demo: false, usage, input_warning: injected, ...result })
   } catch (err) {
-    logCall(context, { endpoint: 'sales-report', mode: 'fallback', startedAt, reason: failureCode(err) })
+    logCall(context, { endpoint: 'sales-report', mode: 'fallback', startedAt, reason: failureCode(err), usage: err.usage })
     return json({ ...demoResult(compact), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

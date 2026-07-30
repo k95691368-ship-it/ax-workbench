@@ -158,7 +158,7 @@ export async function onRequestPost(context) {
     return json({ demo: false, usage, ad_check: adCheck, fact_check: factCheck, brand_applied: Boolean(brand), input_warning: injected, ...shaped })
   } catch (err) {
     const demo = demoResult(input)
-    logCall(context, { endpoint: 'listing', mode: 'fallback', startedAt, reason: failureCode(err) })
+    logCall(context, { endpoint: 'listing', mode: 'fallback', startedAt, reason: failureCode(err), usage: err.usage })
     return json({ ...demo, ad_check: adCheckListing(demo, brand), brand_applied: Boolean(brand), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }
