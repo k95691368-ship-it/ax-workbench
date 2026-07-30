@@ -149,3 +149,28 @@ describe('부정 문맥 판정이 안전 게이트를 약화시키지 않는다'
     expect(detectEscalation('편안하게 먹다가 두드러기가 나서 병원 갔어요').escalate).toBe(true)
   })
 })
+
+describe('서술어 부정은 증상 지속 신호다 (완화하면 안 된다)', () => {
+  // 감사에서 실제로 실행해 재현한 문장들 — 전부 escalate=false로 빠지고 있었다
+  const persists = [
+    '설사가 멈추지 않아요',
+    '복통이 가라앉지 않아요',
+    '두드러기가 사라지지 않아요',
+    '구토가 멈추지 않습니다',
+    '어지럼증이 없어지지 않아요',
+    '배가 아픈 게 낫지 않아요',
+    '보상이 되지 않아요',
+  ]
+
+  it('"~지 않다"는 증상이 계속된다는 뜻이므로 담당자에게 올린다', () => {
+    for (const text of persists) {
+      expect(detectEscalation(text).escalate, text).toBe(true)
+    }
+  })
+
+  it('키워드 자체를 부정하는 표현은 여전히 완화한다', () => {
+    expect(detectEscalation('부작용 없었어요').escalate).toBe(false)
+    expect(detectEscalation('벌레 하나 없이 깨끗하게 왔어요').escalate).toBe(false)
+    expect(detectEscalation('곰팡이 안 생기고 잘 보관됩니다').escalate).toBe(false)
+  })
+})

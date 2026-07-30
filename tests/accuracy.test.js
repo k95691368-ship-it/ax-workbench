@@ -248,3 +248,35 @@ describe('상세페이지 정규화 — 빈 문자열 방어', () => {
     expect(out.sections).toHaveLength(1)
   })
 })
+
+describe('거절 문구 면제가 문장 전체를 지우지 않는다', () => {
+  // 감사에서 재현한 우회 — 마침표를 빼면 사전점검이 통째로 뚫렸다
+  it('문장부호 없이 이어 붙인 완충 문구가 앞부분 위반을 지우지 않는다', () => {
+    const a = scanText('이 제품은 당뇨를 치료합니다 다만 개인차가 있어 효과를 약속드릴 수 없습니다')
+    expect(a.map((f) => f.word)).toContain('치료')
+
+    const b = scanText('아토피와 변비 치료에 탁월하며 자세한 상담은 답변드리기 어렵습니다')
+    expect(b.map((f) => f.word)).toContain('아토피')
+
+    const c = scanText('아토피 완치를 도와주는 유일한 항암 유산균이며 개별 효과는 보장하지 않습니다')
+    const words = c.map((f) => f.word)
+    expect(words).toContain('완치')
+    expect(words).toContain('항암')
+  })
+
+  it('거절이 그 금칙어에 직접 붙은 경우는 여전히 면제한다', () => {
+    expect(scanText('치료 효과는 말씀드릴 수 없습니다')).toEqual([])
+    expect(
+      scanText('제품의 질병 치료나 예방 효과에 대해서는 안내드릴 수 없는 점 양해 부탁드립니다')
+    ).toEqual([])
+  })
+})
+
+describe('법정 필수 표기는 어미가 달라도 위반이 아니다', () => {
+  it('라벨 표기형·문장 연결형도 통과한다 (수정 버튼이 필수 문구를 지우게 두지 않는다)', () => {
+    expect(scanText('본 제품은 질병의 예방 및 치료를 위한 의약품이 아님')).toEqual([])
+    expect(
+      scanText('건강기능식품은 질병의 예방·치료를 위한 의약품이 아니며 균형 잡힌 식생활이 중요합니다')
+    ).toEqual([])
+  })
+})
