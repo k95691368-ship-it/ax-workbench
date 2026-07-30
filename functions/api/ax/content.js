@@ -19,11 +19,25 @@ function withAdCheck(results, brand) {
   return results
 }
 
-// 브랜드 룰북 적용 결과 — 필수 문구가 채널 콘텐츠 전체에 실제로 들어갔는지 확인한다
-function brandMeta(results, brand) {
+// 브랜드 룰북 적용 결과 — 필수 문구를 **채널별로** 확인한다.
+//
+// 예전에는 모든 채널 텍스트를 한 덩어리로 합쳐 검사했다. 그러면 6개 채널 중 1개에만
+// 문구가 있어도 "누락 없음"이 되어 "브랜드 룰북 적용됨" 배지가 떴다.
+// 그런데 채널 콘텐츠는 카드마다 따로 복사·발행되는 **별개 산출물**이다 — 한 곳에만 있는
+// 문구는 나머지 발행물에서는 누락이다. 한 페이지를 조립하는 상세페이지와 달리
+// 여기서는 합산 검사가 성립하지 않는다.
+// 각 항목에 brand_missing을 담아 두면 위반 자동 교정 흐름도 그대로 붙는다.
+export function brandMeta(results, brand) {
   if (!brand) return { brand_applied: false }
-  const texts = results.flatMap((r) => [r.title, r.body])
-  return { brand_applied: true, brand_missing: missingRequired(texts, brand) }
+  const all = new Set()
+  for (const r of results) {
+    const missing = missingRequired([r.title, r.body], brand)
+    if (missing.length) {
+      r.brand_missing = missing
+      missing.forEach((m) => all.add(m))
+    }
+  }
+  return { brand_applied: true, brand_missing: [...all] }
 }
 
 const CHANNEL_SPECS = {
@@ -145,12 +159,19 @@ ${others.length ? others.join(', ') : '(없음)'}
 위 채널 각각에 대해 콘텐츠를 만들어 기록하세요.`
 
   if (previous) {
-    // 이 묶음이 맡은 채널의 이전 원고만 준다 — 다른 채널 원고까지 주면 톤이 섞인다
-    const mine = (previous.results || []).filter((r) => group.includes(r?.channel))
+    // 이 묶음이 맡은 채널의 이전 원고만 준다 — 다른 채널 원고까지 주면 톤이 섞인다.
+    //
+    // previous는 배열로 들어온다(onRequestPost가 p.slice(...).map(...)으로 만들고,
+    // 배열이 아니면 400을 돌려준다). 예전에는 previous.results를 읽어서 **어떤 입력에서도
+    // 항상 빈 배열**이었다 — 즉 "피드백 반영"이 이전 원고 없이 새로 생성하고 있었다.
+    // 화면은 "잘된 부분은 유지됩니다"라고 안내하는데 모델은 유지할 원문을 받지 못했다.
+    // 병렬 전환 때 "묶음이 맡은 채널의 이전 원고만 준다"는 의도가 여기서 끊겼다.
+    const prevList = Array.isArray(previous) ? previous : previous?.results || []
+    const mine = prevList.filter((r) => group.includes(r?.channel))
     content += `
 
 [이 채널들의 이전 결과]
-${JSON.stringify(mine)}
+${userDataJson('이전 원고', mine)}
 
 [사용자 피드백]
 ${userDataBlock('사용자 피드백', feedback)}
@@ -181,14 +202,11 @@ export async function generateChannels(env, { system, product, channels, previou
   )
 
   const raw = []
-  const failed = []
   settled.forEach((r, gi) => {
     const got = r.status === 'fulfilled' ? r.value.input?.results : null
-    if (!Array.isArray(got)) return failed.push(...groups[gi])
+    if (!Array.isArray(got)) return
     // 요청하지 않은 채널이 섞여 오면 버린다 (묶음 단위로 검사)
-    const kept = got.filter((x) => groups[gi].includes(x?.channel))
-    raw.push(...kept)
-    failed.push(...groups[gi].filter((c) => !kept.some((x) => x.channel === c)))
+    raw.push(...got.filter((x) => groups[gi].includes(x?.channel)))
   })
 
   // 항목 단위 정규화는 기존 계약 검증을 그대로 쓴다.
@@ -200,6 +218,16 @@ export async function generateChannels(env, { system, product, channels, previou
     // 성공한 채널 호출의 토큰은 이미 청구됐다 — 예산 집계에 남긴다
     throw withUsage(err, settled)
   }
+
+  // 빠진 채널은 **정규화까지 끝난 뒤** 확정한다.
+  //
+  // 예전에는 묶음 응답에 채널 id가 있으면 성공으로 셌다. 그런데 실제 채택 기준은
+  // 더 엄격하다(title이 문자열이고 body가 비어 있지 않아야 한다 — shape.js).
+  // 그래서 body가 빈 문자열인 응답은 "성공"으로 세어져 failed에서 빠지는데
+  // 정규화 단계에서 탈락했다 — 결과에도 없고 안내도 없이 **조용히 사라졌다**.
+  // 최종 결과에 없는 채널은 이유가 무엇이든 빠진 것으로 본다.
+  const done = new Set(results.map((r) => r.channel))
+  const failed = channels.filter((c) => !done.has(c))
 
   return { results, usage: sumUsage(settled), timing, failed }
 }

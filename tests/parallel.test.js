@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { runAll, sumUsage } from '../functions/_lib/parallel.js'
-import { generateChannels, chunkChannels, CHANNEL_CHUNK } from '../functions/api/ax/content.js'
+import { generateChannels, chunkChannels, CHANNEL_CHUNK, brandMeta } from '../functions/api/ax/content.js'
 
 describe('공용 병렬 실행기', () => {
   it('모든 작업을 동시에 띄운다', async () => {
@@ -164,5 +164,85 @@ describe('채널 콘텐츠 — 묶음 단위 동시 생성', () => {
     // 같은 묶음이 아닌 채널의 이전 원고는 섞이지 않는다
     const sameGroup = chunkChannels(CHANNELS).find((g) => g.includes('instagram'))
     if (!sameGroup.includes('tiktok')) expect(first).not.toContain('틱톡 이전')
+  })
+})
+
+describe('채널 콘텐츠 — 피드백 반영이 이전 원고를 실제로 넣는다', () => {
+  // previous는 배열로 들어온다. 예전에는 previous.results를 읽어 항상 빈 배열이었고,
+  // "잘된 부분은 유지" 지시를 받은 모델이 유지할 원문을 못 받았다.
+  const prev = [
+    { channel: 'instagram', title: '인스타 이전 제목', body: '인스타 이전 본문' },
+    { channel: 'blog', title: '블로그 이전 제목', body: '블로그 이전 본문' },
+  ]
+
+  it('배열로 들어온 이전 원고가 프롬프트에 실린다', async () => {
+    const prompts = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const payload = JSON.parse(init.body)
+        prompts.push(payload.messages[0].content)
+        const chs = channelsOf(init)
+        return apiResponse({ results: chs.map((c) => ({ channel: c, title: `${c} 제목`, body: `${c} 본문` })) })
+      })
+    )
+    await generateChannels(ENV, { ...CALL, previous: prev, feedback: '이모지를 줄여줘' })
+    const igPrompt = prompts.find((p) => p.includes('- instagram:'))
+    expect(igPrompt).toContain('인스타 이전 본문')
+    // 다른 채널 원고는 섞이지 않는다
+    expect(igPrompt).not.toContain('블로그 이전 본문')
+  })
+
+  it('객체 형태로 들어와도 처리한다 (호출부가 바뀌어도 끊기지 않게)', async () => {
+    const prompts = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        prompts.push(JSON.parse(init.body).messages[0].content)
+        const chs = channelsOf(init)
+        return apiResponse({ results: chs.map((c) => ({ channel: c, title: 't', body: 'b' })) })
+      })
+    )
+    await generateChannels(ENV, { ...CALL, previous: { results: prev }, feedback: 'x' })
+    expect(prompts.find((p) => p.includes('- blog:'))).toContain('블로그 이전 본문')
+  })
+})
+
+describe('채널이 조용히 사라지지 않는다', () => {
+  it('본문이 빈 응답으로 탈락한 채널도 안내에 잡힌다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const chs = channelsOf(init)
+        return apiResponse({
+          // tiktok만 body가 빈 문자열 — 채널 id는 있으므로 예전엔 "성공"으로 셌다
+          results: chs.map((c) => ({ channel: c, title: `${c} 제목`, body: c === 'tiktok' ? '' : `${c} 본문` })),
+        })
+      })
+    )
+    const { results, failed } = await generateChannels(ENV, CALL)
+    expect(results.some((r) => r.channel === 'tiktok')).toBe(false)
+    expect(failed).toContain('tiktok')
+  })
+})
+
+describe('필수 문구는 채널별로 검사한다 (채널은 각각 발행되는 산출물)', () => {
+  const brand = { name: '다솜', required: ['의약품이 아닙니다'] }
+
+  it('한 채널에만 있으면 통과로 표시하지 않는다', () => {
+    const results = [
+      { channel: 'blog', title: 'B', body: '건강기능식품은 의약품이 아닙니다' },
+      { channel: 'instagram', title: 'I', body: '오늘부터 한 포씩' },
+    ]
+    const meta = brandMeta(results, brand)
+    expect(meta.brand_missing).toContain('의약품이 아닙니다')
+    // 빠진 채널에 항목별 표시가 붙어야 교정 흐름이 잡는다
+    expect(results.find((r) => r.channel === 'instagram').brand_missing).toBeDefined()
+    expect(results.find((r) => r.channel === 'blog').brand_missing).toBeUndefined()
+  })
+
+  it('모든 채널에 있으면 누락 없음이다', () => {
+    const results = ['blog', 'instagram'].map((c) => ({ channel: c, title: c, body: '의약품이 아닙니다' }))
+    expect(brandMeta(results, brand).brand_missing).toEqual([])
   })
 })
