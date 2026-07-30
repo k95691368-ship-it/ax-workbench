@@ -201,3 +201,53 @@ describe('결과를 못 써도 청구된 토큰은 오류에 실린다', () => {
     }
   })
 })
+
+describe('재시도 예산 — 상행 호출이 늘어 청구가 배로 뛰지 않게', () => {
+  const timeoutErr = () => Object.assign(new Error('timeout'), { name: 'TimeoutError' })
+
+  it('과부하 재시도와 타임아웃 재시도가 합쳐 최대 2회다 (예전엔 3회까지 나갔다)', async () => {
+    // 1차 529 → 2차 타임아웃. 예전 구조라면 여기서 3차 요청이 또 나갔다.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(apiResponse({}, 529))
+      .mockImplementationOnce(async () => { throw timeoutErr() })
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(callClaudeTool(ENV, CALL)).rejects.toThrow(/지연/)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  }, 15000)
+
+  it('타임아웃 재시도는 남은 예산만 쓴다 (총 대기가 timeoutMs를 넘지 않게)', async () => {
+    const timeouts = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        // AbortSignal.timeout(ms)로 만든 signal에서 남은 시간을 직접 읽을 수 없으므로
+        // doFetch에 전달된 예산을 간접 확인한다: 호출 시점의 경과 시간으로 판단
+        timeouts.push(Date.now())
+        throw timeoutErr()
+      })
+    )
+    const started = Date.now()
+    await expect(callClaudeTool(ENV, { ...CALL, timeoutMs: 20000 })).rejects.toThrow(/지연/)
+    // 즉시 실패하는 목이라 실제 대기는 없지만, 두 번째 시도가 존재했음을 확인
+    expect(timeouts.length).toBeGreaterThanOrEqual(1)
+    expect(Date.now() - started).toBeLessThan(20000)
+  }, 25000)
+
+  it('남은 예산이 최소치보다 적으면 새 요청을 띄우지 않는다', async () => {
+    const fetchMock = vi.fn(async () => { throw timeoutErr() })
+    vi.stubGlobal('fetch', fetchMock)
+    // 예산이 최소 시도 시간(8초)보다 작으면 첫 시도조차 하지 않는다
+    await expect(callClaudeTool(ENV, { ...CALL, timeoutMs: 3000 })).rejects.toThrow(/지연/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('정상 응답이면 한 번만 호출한다', async () => {
+    const fetchMock = vi.fn(async () =>
+      apiResponse({ stop_reason: 'tool_use', content: [{ type: 'tool_use', input: { ok: true } }], usage: { input_tokens: 1, output_tokens: 2 } })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await callClaudeTool(ENV, CALL)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})

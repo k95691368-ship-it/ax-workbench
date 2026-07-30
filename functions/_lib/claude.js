@@ -1,5 +1,12 @@
 const MODEL = 'claude-opus-5'
 
+// 한 논리 호출이 상행으로 보낼 수 있는 최대 요청 수.
+// 과부하 재시도와 타임아웃 재시도를 합쳐 이 값으로 제한한다 — 예전에는 둘이 연쇄되어
+// 3번까지 나갔고, 그만큼 실제 청구가 늘면서 계측에는 마지막 하나만 남았다.
+const MAX_ATTEMPTS = 2
+// 남은 시간이 이보다 적으면 새 요청을 띄우지 않는다 (끝내지도 못하고 비용만 발생)
+const MIN_ATTEMPT_MS = 8000
+
 // 실패를 사유 코드와 함께 던진다 — 텔레메트리에 "왜 실패했는지"를 남기기 위해서다.
 // 사유가 없으면 폴백 건수만 쌓이고, 무엇을 고쳐야 하는지는 사람이 손으로 찾아야 한다.
 export function failure(code, message) {
@@ -25,7 +32,7 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
   const apiKey = env.CLAUDE_API_KEY
   if (!apiKey) throw new Error('CLAUDE_API_KEY가 설정되지 않았습니다.')
 
-  const doFetch = ({ effort = 'medium' } = {}) =>
+  const doFetch = ({ effort = 'medium', timeout = timeoutMs } = {}) =>
     fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -35,7 +42,7 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
       },
       // 외부 API 지연이 Functions 실행 한도까지 매달리지 않게 타임아웃을 건다
       // (Cloudflare 엣지 자체 한도는 약 100초라 그보다 넉넉히 아래로 둔다)
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(timeout),
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
@@ -50,27 +57,48 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
       }),
     })
 
-  let res
-  try {
-    res = await doFetch()
-    // 일시적 과부하(429/529/5xx)는 짧게 기다렸다 1회 재시도
-    if (res.status === 429 || res.status >= 500) {
-      await new Promise((r) => setTimeout(r, 1500))
-      res = await doFetch()
-    }
-  } catch (err) {
-    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError'
-    if (!timedOut) throw failure('network', err?.message || 'AI 서비스에 연결하지 못했습니다.')
+  // 재시도는 "전체 시간 예산"과 "시도 횟수" 하나로 관리한다.
+  //
+  // 예전에는 과부하 재시도와 타임아웃 재시도가 서로를 몰랐다. 429 재시도가 타임아웃되면
+  // 다시 타임아웃 재시도로 떨어져 **한 논리 호출에 상행 요청이 최대 3번** 나갔고,
+  // 타임아웃 재시도는 timeoutMs를 처음부터 다시 써서 총 대기가 2×timeoutMs까지 갔다.
+  // 이건 두 가지로 사용자에게 손해였다:
+  //   비용 — 상행 호출이 2~3배 나가는데 계측에는 마지막 응답 하나만 남는다.
+  //   장애 — 총 대기가 Cloudflare 엣지 한도(약 100초)를 넘어가면 폴백 catch에
+  //          도달하지 못하고, 이 서비스가 모든 장애에서 약속한 "예시 결과로 강등" 대신
+  //          게이트웨이 에러가 사용자에게 뜬다.
+  // 이제 timeoutMs는 이 호출 전체의 예산이고, 상행 요청은 최대 MAX_ATTEMPTS회다.
+  const startedAt = Date.now()
+  const remainingMs = () => timeoutMs - (Date.now() - startedAt)
 
-    // 실측된 실패의 대부분은 과부하가 아니라 "긴 생성"이었다.
-    // 예시 결과로 강등하기 전에, 사고 강도를 낮춰(effort low) 한 번 더 시도한다 —
-    // 품질은 조금 내려가도 라이브 결과를 지키는 편이 사용자에게 이롭다.
+  let res
+  let lastTimedOut = false
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const budget = remainingMs()
+    // 남은 예산이 너무 적으면 새 요청을 띄우지 않는다 — 띄워도 못 끝내고 돈만 쓴다
+    if (budget < MIN_ATTEMPT_MS) break
+
     try {
-      res = await doFetch({ effort: 'low' })
-    } catch {
-      throw failure('timeout', 'AI 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.')
+      // 타임아웃으로 다시 시도할 때는 사고 강도를 낮춰(effort low) 응답 시간을 줄인다.
+      // 품질은 조금 내려가도 라이브 결과를 지키는 편이 사용자에게 이롭다.
+      res = await doFetch({ effort: lastTimedOut ? 'low' : 'medium', timeout: budget })
+      lastTimedOut = false
+      // 일시적 과부하(429/529/5xx)는 짧게 기다렸다 남은 예산으로 다시 시도
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt === MAX_ATTEMPTS) break
+        await new Promise((r) => setTimeout(r, Math.min(1500, Math.max(0, remainingMs() - MIN_ATTEMPT_MS))))
+        continue
+      }
+      break
+    } catch (err) {
+      const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError'
+      if (!timedOut) throw failure('network', err?.message || 'AI 서비스에 연결하지 못했습니다.')
+      lastTimedOut = true
+      res = null
     }
   }
+
+  if (!res) throw failure('timeout', 'AI 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.')
 
   if (!res.ok) {
     throw failure(

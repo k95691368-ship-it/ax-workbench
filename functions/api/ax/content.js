@@ -171,7 +171,11 @@ export async function generateChannels(env, { system, product, channels, previou
         user: groupUserContent({ product, group, channels, previous, feedback }),
         tool: CHANNELS_TOOL,
         maxTokens: 8192,
-        timeoutMs: 80000,
+        // 이제 timeoutMs는 재시도까지 포함한 전체 예산이다.
+        // Cloudflare 엣지 한도(약 100초) 아래로 여유를 둔다 —
+        // 넘으면 폴백 catch에 도달하지 못하고 게이트웨이 에러가 사용자에게 뜬다.
+        // 실측 단일 채널 호출은 15~22초라 70초도 3배 여유다.
+        timeoutMs: 70000,
       })
     )
   )
