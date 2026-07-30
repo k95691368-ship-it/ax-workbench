@@ -190,3 +190,33 @@ describe('블록 탈출 — 중첩 태그로 격리를 뚫을 수 없다', () =>
     expect(injectionNotice(detectInjection([evil]))).toContain('데이터로만 처리')
   })
 })
+
+describe('에스컬레이션 부분일치 오탐 — 칭찬 리뷰가 안전 큐를 채우지 않게', () => {
+  const clean = [
+    '완전 중독성 있는 맛이에요! 재구매합니다',
+    '중독성 없이 담백해서 좋아요',
+    '유리병에 옮겨 담아 보관하니 좋네요',
+    '가격 대비 유리한 선택이었습니다',
+    '맛이 썩 별로예요',
+    '유리 용기에 담으면 좋아요',
+  ]
+  const risky = [
+    '식중독 증상으로 병원 갔어요',
+    '유리 조각이 들어있었어요',
+    '유리조각 나왔어요',
+    '내용물이 썩어서 왔습니다',
+    '썩은 냄새가 납니다',
+    '곰팡이가 폈어요',
+    '이물이 들어있어요',
+    '급성 중독으로 입원했습니다',
+    '중독 증상이 나타났어요',
+  ]
+
+  it('칭찬·일반 리뷰를 이물·건강 신고로 올리지 않는다', () => {
+    for (const t of clean) expect(detectEscalation(t).escalate, t).toBe(false)
+  })
+
+  it('실제 위험 신호는 그대로 올린다 (좁히기가 구멍이 되지 않게)', () => {
+    for (const t of risky) expect(detectEscalation(t).escalate, t).toBe(true)
+  })
+})
