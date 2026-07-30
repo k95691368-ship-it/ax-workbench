@@ -6,6 +6,8 @@ import { highlightSegments } from '../lib/highlight.js'
 import { scanText, BANNED_RULES } from '../lib/compliance.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { AdCheckBadge, BrandBadge, FactCheckBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import ChannelReady from '../components/ChannelReady.jsx'
+import { checkTitleAllChannels, autoFixTitle, CHANNEL_RULES } from '../lib/channelRules.js'
 import { pushHistory } from '../lib/history.js'
 
 const SAMPLE_RISKY_COPY =
@@ -29,6 +31,43 @@ function HighlightedText({ text, findings }) {
   )
 }
 
+// 상품명 하나가 어느 채널에서 막히는지 — 등록 전에 보이는 것이 반려 후에 아는 것보다 낫다.
+// 예전에는 '50자'라는 숫자 하나만 보여줬다. 그런데 그 50자는 어느 채널의 기준도 아니었고,
+// 정작 등록을 막는 특수문자·중복 단어·홍보 문구는 화면에 없었다.
+function ChannelChecks({ title, onFix }) {
+  const checks = checkTitleAllChannels(title)
+  const blocked = checks.filter((c) => !c.ok)
+  return (
+    <div className="title-channels">
+      <div className="chip-row">
+        {checks.map((c) => (
+          <span
+            className={c.ok ? 'ch-badge ch-ok' : 'ch-badge ch-bad'}
+            key={c.channel}
+            title={c.findings.map((f) => f.message).join('\n') || '규정 통과'}
+          >
+            {c.ok ? '✓' : '✕'} {c.label} {c.length}/{CHANNEL_RULES.find((r) => r.id === c.channel).maxLen}자
+          </span>
+        ))}
+      </div>
+      {blocked.length > 0 && (
+        <div className="title-channel-fix">
+          <ul className="plain-list warn-list">
+            {[...new Set(blocked.flatMap((c) => c.findings.filter((f) => f.severity === 'high').map((f) => f.message)))].map(
+              (m) => (
+                <li key={m}>{m}</li>
+              )
+            )}
+          </ul>
+          <button type="button" className="copy-mini" onClick={() => onFix(autoFixTitle(title, blocked[0].channel))}>
+            {blocked[0].label} 규정으로 자동 교정
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ListingPage() {
   const location = useLocation()
   const [form, setForm] = useState(() => {
@@ -42,6 +81,8 @@ export default function ListingPage() {
   const [result, setResult] = useState(null)
   const [copyText, setCopyText] = useState(SAMPLE_RISKY_COPY)
   const [copiedTitle, setCopiedTitle] = useState('')
+  // 자동 교정한 상품명 — 원본을 지우지 않고 나란히 보여준다 (무엇이 바뀌었는지 확인 가능해야 한다)
+  const [fixes, setFixes] = useState({})
 
   const navigate = useNavigate()
 
@@ -148,13 +189,11 @@ export default function ListingPage() {
                 <ol className="listing-titles">
                   {result.titles.map((t) => {
                     const titleFindings = scanText(t)
+                    const fixed = fixes[t]
                     return (
                       <li key={t}>
                         <div className="listing-title-row">
                           <span className="listing-title-text">{t}</span>
-                          <span className={t.length > 50 ? 'char-count over' : 'char-count'}>
-                            {t.length}/50자
-                          </span>
                           <button type="button" className="copy-mini" onClick={() => copyTitle(t)}>
                             {copiedTitle === t ? '✓' : '복사'}
                           </button>
@@ -163,6 +202,23 @@ export default function ListingPage() {
                           <p className="listing-title-warn">
                             ⚠ 금칙어 재점검 필요: {titleFindings.map((f) => f.word).join(', ')}
                           </p>
+                        )}
+                        <ChannelChecks title={t} onFix={(f) => setFixes((prev) => ({ ...prev, [t]: f }))} />
+                        {fixed && (
+                          <div className="title-fixed">
+                            <div className="listing-title-row">
+                              <span className="listing-title-text">{fixed.title}</span>
+                              <span className="ch-badge ch-ok">교정본 {fixed.title.length}자</span>
+                              <button type="button" className="copy-mini" onClick={() => copyTitle(fixed.title)}>
+                                {copiedTitle === fixed.title ? '✓' : '복사'}
+                              </button>
+                            </div>
+                            <ul className="plain-list">
+                              {fixed.changes.map((c, i) => (
+                                <li key={i}>{c.detail}</li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
                       </li>
                     )
@@ -201,6 +257,7 @@ export default function ListingPage() {
                   ))}
                 </ul>
               </section>
+              <ChannelReady items={[{ name: form.name, listing: result }]} fileBase={form.name} />
             </div>
           )}
         </div>

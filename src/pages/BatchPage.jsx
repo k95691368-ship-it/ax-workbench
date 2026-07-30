@@ -8,6 +8,7 @@ import { violatingTargets, buildFixPayload, mergeFixed, sumUsage } from '../lib/
 import DemoBadge from '../components/DemoBadge.jsx'
 import { BrandBadge, UsageNote, ParallelNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import ChannelReady from '../components/ChannelReady.jsx'
 
 const GEN_STEPS = [
   '상품 목록을 해석하고 있어요',
@@ -220,6 +221,21 @@ export default function BatchPage() {
   // 재생성으로 해결되는 위반(생성물)과, 사람이 원문을 고쳐야 하는 위반(입력)을 구분한다
   const flagged = result ? result.results.filter((r) => r.ad_check?.length).length : 0
   const inputFlagged = result ? result.results.filter((r) => r.input_check?.length).length : 0
+
+  // 채널 등록 양식으로 내보낼 형태 — 표의 각 행이 상품 하나가 된다
+  const channelItems = useMemo(
+    () =>
+      (result?.results || []).map((r) => ({
+        name: r.input_name,
+        listing: {
+          titles: [r.title, r.alt_title].filter(Boolean),
+          search_keywords: r.keywords || [],
+          tags: r.tags || [],
+          category_paths: [],
+        },
+      })),
+    [result]
+  )
 
   return (
     <div className="tool-page">
@@ -439,6 +455,12 @@ export default function BatchPage() {
                   </tbody>
                 </table>
               </div>
+
+              <ChannelReady
+                items={channelItems}
+                fileBase="대량등록"
+                unsafeCount={result.results.filter((r) => r.filled).length}
+              />
             </>
           )}
         </div>

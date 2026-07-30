@@ -52,12 +52,19 @@ export default function DetailPage() {
     const entry = location.state?.restore
     if (!entry?.result) return
     if (entry.input) setForm(entry.input)
-    setVersions([entry.result])
+    setVersions([{ ...entry.result, input: entry.input || null }])
     setActiveVer(0)
     navigate(location.pathname, { replace: true, state: null })
   }, [location, navigate])
 
   const result = versions[activeVer] || null
+  // 이 결과를 만든 입력. 결과는 생성 시점에 고정되는데 다운로드·브리프·재생성이 살아 있는 form을
+  // 읽으면, 프리셋 칩만 눌러도 파일명과 <title>은 새 상품인데 본문은 옛 상품인 산출물이 나온다.
+  // 디자이너에게 그대로 인계되는 파일이라 이름이 어긋나면 그 자체로 사고다.
+  const outForm = result?.input || form
+  const formChanged = Boolean(
+    result?.input && ['name', 'category', 'features', 'target'].some((k) => (result.input[k] || '') !== (form[k] || ''))
+  )
   const theme = themeId === 'custom' && customImage ? makeCustomTheme(customImage) : getTheme(themeId)
 
   // 테마 카드(글래스 등)·그라데이션 제목을 미리보기에 그대로 적용하기 위한 인라인 스타일
@@ -106,11 +113,13 @@ export default function DetailPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await postJson('/api/ax/detail-page', form)
-      setVersions([data])
+      // 이 실행에 실제로 보낸 입력을 결과와 함께 묶어 둔다 (버전마다 자기 입력을 갖는다)
+      const sent = { ...form }
+      const data = await postJson('/api/ax/detail-page', sent)
+      setVersions([{ ...data, input: sent }])
       setActiveVer(0)
       setFeedback('')
-      pushHistory({ feature: 'detail', label: form.name, input: form, result: data })
+      pushHistory({ feature: 'detail', label: sent.name, input: sent, result: data })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
@@ -126,8 +135,11 @@ export default function DetailPage() {
     setRevising(true)
     setError('')
     try {
+      // 재생성은 "이 결과를 기억한 채로 개선판"이다 — 제품 정보는 그 결과를 만든 값이어야 한다.
+      // 살아 있는 form을 보내면 화면 안내와 달리 새 제품 정보 + 옛 원고가 한 프롬프트에 섞인다.
+      const sent = { ...outForm }
       const data = await postJson('/api/ax/detail-page', {
-        ...form,
+        ...sent,
         revision: {
           feedback: fb,
           previous: {
@@ -141,12 +153,12 @@ export default function DetailPage() {
         },
       })
       setVersions((prev) => {
-        const next = [...prev, { ...data, feedbackApplied: fb }].slice(-6)
+        const next = [...prev, { ...data, input: sent, feedbackApplied: fb }].slice(-6)
         setActiveVer(next.length - 1)
         return next
       })
       setFeedback('')
-      pushHistory({ feature: 'detail', label: `${form.name} — 수정본`, input: form, result: data })
+      pushHistory({ feature: 'detail', label: `${sent.name} — 수정본`, input: sent, result: data })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -166,8 +178,8 @@ export default function DetailPage() {
 
   function download() {
     downloadFile(
-      `상세페이지_초안_${safeFileName(form.name)}.html`,
-      buildHtml(result, form, theme),
+      `상세페이지_초안_${safeFileName(outForm.name)}.html`,
+      buildHtml(result, outForm, theme),
       'text/html;charset=utf-8'
     )
   }
@@ -240,6 +252,11 @@ export default function DetailPage() {
             <>
               <ResultNotice text={result.notice} />
               <ResultNotice text={result.input_warning} />
+              {formChanged && (
+                <ResultNotice
+                  text={`이 결과는 "${outForm.name}" 입력으로 만들어졌습니다. 그 뒤 입력창을 고쳤기 때문에, 다운로드·브리프·재생성에는 지금 입력창이 아니라 위 입력이 쓰입니다.`}
+                />
+              )}
               <FixViolations
                 summary={violationSummary(result)}
                 onFix={revise}
@@ -271,7 +288,7 @@ export default function DetailPage() {
                 <button type="button" className="btn-ghost" onClick={generate}>
                   다시 생성
                 </button>
-                <button type="button" className="btn-ghost" onClick={() => copyText('brief', buildBrief(result, form, theme))}>
+                <button type="button" className="btn-ghost" onClick={() => copyText('brief', buildBrief(result, outForm, theme))}>
                   {copied === 'brief' ? '복사됨 ✓' : '디자인 브리프 복사'}
                 </button>
                 <button type="button" className="btn-ghost" onClick={download}>

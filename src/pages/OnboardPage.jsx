@@ -6,6 +6,7 @@ import { getTheme } from '../lib/themes.js'
 import { buildHtml, buildBrief, downloadFile, safeFileName } from '../lib/detailHtml.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { BrandBadge, UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import ChannelReady from '../components/ChannelReady.jsx'
 import { pushHistory } from '../lib/history.js'
 
 const EMPTY = { name: '', category: '', features: '', target: '', tone: '' }
@@ -413,6 +414,9 @@ export default function OnboardPage() {
                       </button>
                     )}
                   </div>
+
+                  {/* 파이프라인의 끝 — 여기서 각 오픈마켓 등록 양식까지 나가야 "온보딩"이 끝난다 */}
+                  {listing && <ChannelReady items={[{ name: outForm.name, listing }]} fileBase={outForm.name} />}
 
                   {flags.length > 0 && (
                     <div className="onboard-flags">
