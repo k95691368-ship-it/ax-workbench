@@ -10,7 +10,11 @@ export function parseProducts(text) {
     .filter(Boolean)
   const products = []
   for (const line of lines) {
-    const [name, category, features] = line.split('|').map((s) => (s || '').trim())
+    // 구분자를 4개 이상 쓴 줄에서 4번째 조각을 조용히 버리지 않는다 —
+    // 예전에는 구조분해가 앞 3개만 취해 '유산균 | 건강식품 | 19종 | 100억 CFU'의
+    // '100억 CFU'가 사라진 채 AI에 전송됐고, 그 특징은 금칙어 점검 대상에서도 빠졌다.
+    const [name, category, ...rest] = line.split('|').map((s) => (s || '').trim())
+    const features = rest.join('|').trim()
     if (!name) continue
     products.push({
       name: name.slice(0, 100),
@@ -35,7 +39,22 @@ function findCol(header, aliases) {
   })
 }
 
-const cell = (row, i) => (i >= 0 ? String(row?.[i] ?? '').trim() : '')
+// 셀 값 하나를 "한 줄 한 상품 | 구분" 형식에 안전한 텍스트로 만든다.
+//
+// 엑셀 Alt+Enter로 넣은 셀 내부 줄바꿈(특징·설명 열에 매우 흔하다)을 그대로 두면,
+// 업로드 → productsToText → textarea → parseProducts를 거치는 동안 줄바꿈이
+// **상품 구분자로 승격**된다. 감사 재현: 상품 2개 파일이 '2개 인식'이라고 안내되고
+// 바로 아래 카운터는 '4개 인식됨'이 되며, '저온 2회 구이' 같은 존재하지 않는 상품이
+// AI 등록 요청으로 들어가 등록용 CSV에 섞이고 20개 한도까지 잡아먹었다.
+// 셀 안의 '|'도 같은 이유로 칸을 밀어내므로 '/'로 바꾼다.
+const cell = (row, i) =>
+  i >= 0
+    ? String(row?.[i] ?? '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/\|/g, '/')
+        .replace(/ {2,}/g, ' ')
+        .trim()
+    : ''
 
 // 엑셀/CSV 행렬 → 상품 목록.
 // 헤더 행이 있으면 컬럼명으로 찾고, 없으면 1·2·3열을 상품명·카테고리·특징으로 본다.

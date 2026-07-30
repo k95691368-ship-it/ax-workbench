@@ -69,6 +69,40 @@ describe('rowsToProducts (엑셀·CSV 행렬 → 상품 목록)', () => {
   })
 })
 
+describe('업로드한 셀이 존재하지 않는 상품을 만들지 않는다', () => {
+  // 엑셀 Alt+Enter로 넣은 셀 내부 줄바꿈. 예전에는 이 줄바꿈이 업로드 →
+  // productsToText → textarea → parseProducts를 거치며 상품 구분자로 승격돼,
+  // 상품 2개 파일에서 '4개 인식됨'과 가짜 상품 2개가 생겼다.
+  const rows = [
+    ['상품명', '카테고리', '특징'],
+    ['도시락김 16봉', '식품', '남해안 원초\n저온 2회 구이\n들기름+참기름'],
+    ['유산균 30포', '건강기능식품', '19종 유산균 | 100억 CFU'],
+  ]
+
+  it('셀 안 줄바꿈을 공백으로 눕혀 한 상품으로 유지한다', () => {
+    const { products } = rowsToProducts(rows)
+    expect(products).toHaveLength(2)
+    expect(products[0].features).toBe('남해안 원초 저온 2회 구이 들기름+참기름')
+  })
+
+  it('셀 안 구분자(|)가 칸을 밀어내지 않는다', () => {
+    const { products } = rowsToProducts(rows)
+    expect(products[1].features).toBe('19종 유산균 / 100억 CFU')
+  })
+
+  it('업로드 안내 개수와 실제 전송 개수가 같다 (왕복해도 늘어나지 않는다)', () => {
+    const uploaded = rowsToProducts(rows).products
+    const roundTrip = parseProducts(productsToText(uploaded)).products
+    expect(roundTrip).toHaveLength(uploaded.length)
+    expect(roundTrip).toEqual(uploaded)
+  })
+
+  it('구분자를 4개 이상 쓴 줄에서 뒷조각을 버리지 않는다', () => {
+    const { products } = parseProducts('유산균 | 건강기능식품 | 19종 유산균 | 100억 CFU')
+    expect(products[0].features).toBe('19종 유산균|100억 CFU')
+  })
+})
+
 describe('productsToText (상품 목록 → 입력창 텍스트)', () => {
   it('뒤쪽 빈 칸은 구분자까지 지운다', () => {
     const text = productsToText([

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import { parseCsv, normalizeSales, aggregate, weekdayAverages, skippedNotice } from '../lib/csv.js'
+import { barGeometry } from '../lib/chart.js'
 import { readTabularFile, TABULAR_ACCEPT } from '../lib/tabular.js'
 import { SAMPLE_CSV } from '../lib/sampleSales.js'
 import DemoBadge from '../components/DemoBadge.jsx'
@@ -33,49 +34,53 @@ function DailyBarChart({ byDate, anomalies }) {
   const W = 640
   const H = 220
   const pad = { top: 16, right: 8, bottom: 28, left: 56 }
-  const max = Math.max(...byDate.map(([, v]) => v))
   const innerW = W - pad.left - pad.right
   const innerH = H - pad.top - pad.bottom
   const gap = 2
   const barW = Math.max(4, innerW / byDate.length - gap)
-  const ticks = [0, 0.5, 1].map((t) => Math.round(max * t))
+
+  // 0선을 값 범위에서 계산한다 — 음수인 날(환불 > 판매)도 보이도록 (src/lib/chart.js)
+  const geo = barGeometry(
+    byDate.map(([, v]) => v),
+    { top: pad.top, height: innerH }
+  )
+  const { zeroY, yOf, ticks, hasNegative } = geo
 
   return (
     <figure className="viz-figure">
-      <figcaption>일별 매출 추이</figcaption>
+      <figcaption>일별 매출 추이{hasNegative && ' — 빨간 막대는 환불이 판매를 넘은 날입니다'}</figcaption>
       <div className="viz-wrap">
         <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="일별 매출 막대 차트" onMouseLeave={() => setHover(null)}>
-          {ticks.map((t) => {
-            const y = pad.top + innerH - (max ? (t / max) * innerH : 0)
+          {ticks.map((t, ti) => {
+            const y = yOf(t)
             return (
-              <g key={t}>
+              <g key={`t${ti}`}>
                 <line x1={pad.left} x2={W - pad.right} y1={y} y2={y} stroke="#e1e0d9" strokeWidth="1" />
                 <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill="#898781">
-                  {t >= 10000 ? `${fmt(t / 10000)}만` : fmt(t)}
+                  {Math.abs(t) >= 10000 ? `${fmt(t / 10000)}만` : fmt(t)}
                 </text>
               </g>
             )
           })}
           {byDate.map(([date, value], i) => {
-            const h = max ? (value / max) * innerH : 0
+            const { negative, top, height: h } = geo.bars[i]
             const x = pad.left + i * (innerW / byDate.length) + gap / 2
-            const y = pad.top + innerH - h
             const anomaly = anomalyMap.get(date)
             return (
               <g key={date}>
                 <rect
                   x={x}
-                  y={y}
+                  y={top}
                   width={barW}
-                  height={Math.max(h, 1)}
+                  height={h}
                   rx="4"
                   ry="4"
-                  fill="#2a78d6"
+                  fill={negative ? '#d03b3b' : '#2a78d6'}
                   opacity={hover && hover.date !== date ? 0.45 : 1}
-                  onMouseEnter={() => setHover({ date, value, x: x + barW / 2, y })}
+                  onMouseEnter={() => setHover({ date, value, x: x + barW / 2, y: top })}
                 />
-                {anomaly && (
-                  <text x={x + barW / 2} y={y - 6} textAnchor="middle" fontSize="11" fill={anomaly.direction === 'spike' ? '#006300' : '#d03b3b'}>
+                {anomaly && !negative && (
+                  <text x={x + barW / 2} y={top - 6} textAnchor="middle" fontSize="11" fill={anomaly.direction === 'spike' ? '#006300' : '#d03b3b'}>
                     {anomaly.direction === 'spike' ? '▲' : '▼'}
                   </text>
                 )}
@@ -87,7 +92,7 @@ function DailyBarChart({ byDate, anomalies }) {
               </g>
             )
           })}
-          <line x1={pad.left} x2={W - pad.right} y1={pad.top + innerH} y2={pad.top + innerH} stroke="#c3c2b7" strokeWidth="1" />
+          <line x1={pad.left} x2={W - pad.right} y1={zeroY} y2={zeroY} stroke="#c3c2b7" strokeWidth="1" />
         </svg>
         {hover && (
           <div className="viz-tooltip" style={{ left: `${(hover.x / W) * 100}%`, top: `${(hover.y / H) * 100}%` }}>
@@ -117,7 +122,9 @@ function RankBars({ title, data, total }) {
           <div className="rank-row" key={label} title={`${label}: ${fmt(value)}원`}>
             <span className="rank-label">{label}</span>
             <span className="rank-track">
-              <span className="rank-fill" style={{ width: `${max ? (value / max) * 100 : 0}%` }} />
+              {/* 순매출이 음수인 채널·상품은 비율이 음수가 되어 width가 유효하지 않은 CSS가 된다.
+                  금액 텍스트가 부호를 보여주므로 막대만 0으로 눕힌다. */}
+              <span className="rank-fill" style={{ width: `${max > 0 ? Math.max(0, (value / max) * 100) : 0}%` }} />
             </span>
             <span className="rank-value">
               {fmt(value)}원{total ? <em> ({Math.round((value / total) * 100)}%)</em> : null}

@@ -55,6 +55,11 @@ export function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
 }
 
+// RFC4180: 인용은 **필드 맨 앞의** 따옴표에서만 시작한다.
+// 이 조건이 없으면 `27"모니터 거치대`처럼 값 안에 따옴표가 든 상품명(인치 표기는
+// 실무 CSV에 흔하다)에서 인용 모드로 들어가, 이후의 쉼표·줄바꿈이 모두 한 필드로
+// 흡수된다. 오류도 경고도 없이 행 수만 줄어들고 총매출이 틀린다 —
+// 감사 재현: 4행 CSV가 2행으로 병합되어 170,000원이 90,000원으로 표시됐다.
 export function parseCsv(text) {
   const rows = []
   let row = []
@@ -74,7 +79,7 @@ export function parseCsv(text) {
       } else {
         field += ch
       }
-    } else if (ch === '"') {
+    } else if (ch === '"' && field === '') {
       inQuotes = true
     } else if (ch === ',') {
       row.push(field)
@@ -90,7 +95,43 @@ export function parseCsv(text) {
   }
   row.push(field)
   if (row.some((c) => c.trim() !== '')) rows.push(row)
+  // 파일이 인용 모드로 끝났다 = 따옴표 짝이 맞지 않는다.
+  // 이 경우 뒤쪽 행들이 한 필드로 빨려 들어가 조용히 사라지므로 사실을 함께 전달한다.
+  if (inQuotes) rows.unclosedQuote = true
   return rows
+}
+
+// 금액·수량 셀 하나를 숫자로 해석한다. 해석할 수 없으면 null (0으로 바꾸지 않는다).
+//
+// 예전에는 `replace(/[^0-9.-]/g, '')` 후 Number()였다. 남은 문자의 의미를 확인하지 않아
+// 서로 다른 표기가 조용히 다른 숫자로 바뀌었다 — 감사에서 확인한 실제 변환:
+//   '#DIV/0!'     → 0            수식이 깨진 셀이 '매출 0원 행'으로 집계에 편입
+//   '(1,500)'     → +1500        회계 서식 괄호 음수(환불)가 양수로 뒤집혀 총매출을 부풀림
+//   '1.23457E+11' → 1.2345711    1,234억이 1.23원
+//   '12만'        → 12
+// 어느 쪽도 오류가 뜨지 않고 차트·리포트·AI 프롬프트까지 그대로 흘러갔다.
+const CURRENCY = /[₩$€¥￦]/g
+const TRAILING_UNIT = /(원정|원|개|건|EA|ea|pcs|PCS)$/
+const NUMERIC = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/
+
+export function parseAmount(raw) {
+  let text = String(raw ?? '').trim()
+  if (text === '') return null
+  // 엑셀 오류 셀(#DIV/0!, #N/A, #REF! …) — 숫자를 품은 것도 있으므로 먼저 걸러낸다
+  if (text.startsWith('#')) return null
+
+  let sign = 1
+  const paren = text.match(/^\((.*)\)$/)
+  if (paren) {
+    sign = -1
+    text = paren[1].trim()
+  }
+  text = text.replace(CURRENCY, '').replace(/\s/g, '').replace(TRAILING_UNIT, '').replace(/,/g, '')
+  if (text.startsWith('+')) text = text.slice(1)
+  if (!NUMERIC.test(text)) return null
+  const n = Number(text)
+  if (!Number.isFinite(n)) return null
+  return sign * n
 }
 
 const HEADER_ALIASES = {
@@ -117,14 +158,17 @@ export function normalizeSales(rows) {
   const records = []
   // 버린 행을 사유별로 센다. 조용히 버리면 총매출이 실제보다 적게 나오는데
   // 사용자는 그 사실을 알 방법이 없다 — 화면에 알려주기 위해 함께 돌려준다.
-  const skipped = { dates: 0, numbers: 0 }
+  const skipped = { dates: 0, numbers: 0, unreadable: 0, samples: [], unclosedQuote: Boolean(rows.unclosedQuote) }
+  const noteSample = (v) => {
+    const s = String(v ?? '').trim().slice(0, 20)
+    if (s && skipped.samples.length < 3 && !skipped.samples.includes(s)) skipped.samples.push(s)
+  }
   for (const row of rows.slice(1)) {
-    // 통화기호(₩,$)·단위(원, 개)·쉼표를 걷어내고 숫자만 남긴다.
-    const amountStr = String(row[col.amount]).replace(/[^0-9.-]/g, '')
-    const qtyStr = String(row[col.qty]).replace(/[^0-9.-]/g, '')
+    const rawAmount = String(row[col.amount] ?? '').trim()
+    const rawQty = String(row[col.qty] ?? '').trim()
     const date = normalizeDate(row[col.date])
     // 빈 셀은 0이 아니라 "값 없음"이므로 건너뛴다 (Number('') === 0 함정 방지)
-    if (amountStr === '' || qtyStr === '') {
+    if (rawAmount === '' || rawQty === '') {
       skipped.numbers += 1
       continue
     }
@@ -135,9 +179,14 @@ export function normalizeSales(rows) {
       skipped.dates += 1
       continue
     }
-    const amount = Number(amountStr)
-    const qty = Number(qtyStr)
-    if (Number.isNaN(amount) || Number.isNaN(qty)) continue
+    const amount = parseAmount(rawAmount)
+    const qty = parseAmount(rawQty)
+    // 값이 있는데 해석할 수 없는 셀은 "0원"으로 삼키지 않고 사유·원문과 함께 알린다
+    if (amount === null || qty === null) {
+      skipped.unreadable += 1
+      noteSample(amount === null ? rawAmount : rawQty)
+      continue
+    }
     records.push({
       date,
       channel: String(row[col.channel]).trim() || '기타',
@@ -159,8 +208,15 @@ export function skippedNotice(records) {
   const parts = []
   if (s.dates) parts.push(`날짜 형식을 인식하지 못한 행 ${s.dates}개`)
   if (s.numbers) parts.push(`수량·금액이 비어 있는 행 ${s.numbers}개`)
-  if (parts.length === 0) return null
-  return `${parts.join(', ')}는 집계에서 제외했습니다. 총매출이 파일 합계와 다를 수 있습니다.`
+  if (s.unreadable) {
+    const eg = s.samples.length ? ` (예: ${s.samples.join(', ')})` : ''
+    parts.push(`수량·금액을 숫자로 읽을 수 없는 행 ${s.unreadable}개${eg}`)
+  }
+  const quote = s.unclosedQuote
+    ? '파일에 짝이 맞지 않는 따옴표(")가 있어 뒷부분이 한 칸으로 합쳐졌을 수 있습니다. '
+    : ''
+  if (parts.length === 0) return quote || null
+  return `${quote}${parts.join(', ')}는 집계에서 제외했습니다. 총매출이 파일 합계와 다를 수 있습니다.`
 }
 
 function sumBy(records, keyFn) {

@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, normalizeSales, aggregate, normalizeDate, decodeCsvBuffer, weekdayAverages, skippedNotice } from '../src/lib/csv.js'
+import {
+  parseCsv,
+  normalizeSales,
+  aggregate,
+  normalizeDate,
+  decodeCsvBuffer,
+  weekdayAverages,
+  skippedNotice,
+  parseAmount,
+} from '../src/lib/csv.js'
 import { SAMPLE_CSV } from '../src/lib/sampleSales.js'
 
 describe('decodeCsvBuffer', () => {
@@ -127,6 +136,111 @@ describe('엑셀 날짜 시리얼', () => {
   it('기존 표기도 그대로 처리한다', () => {
     expect(normalizeDate('2026/07/13')).toBe('2026-07-13')
     expect(normalizeDate('2026.7.3')).toBe('2026-07-03')
+  })
+})
+
+describe('필드 중간의 따옴표가 행을 병합하지 않는다', () => {
+  // 감사 재현: 인치 표기(27") 상품명 때문에 4행이 2행으로 병합되고
+  // 총매출 170,000원이 90,000원으로 표시됐다 — 경고는 없었다.
+  const csv = [
+    '날짜,채널,상품명,수량,매출액',
+    '2026-07-13,쿠팡,27"모니터 거치대,5,50000',
+    '2026-07-14,네이버,키보드,3,30000',
+    '2026-07-15,쿠팡,32"모니터 거치대,7,70000',
+    '2026-07-16,쿠팡,마우스,2,20000',
+  ].join('\n')
+
+  it('행이 병합되지 않고 총매출이 맞는다', () => {
+    const rows = parseCsv(csv)
+    expect(rows).toHaveLength(5)
+    const summary = aggregate(normalizeSales(rows))
+    expect(summary.totalAmount).toBe(170000)
+    expect(summary.count).toBe(4)
+  })
+
+  it('상품명 안의 따옴표를 지우지 않는다', () => {
+    expect(parseCsv(csv)[1][2]).toBe('27"모니터 거치대')
+  })
+
+  it('필드 맨 앞의 따옴표는 여전히 인용으로 처리한다 (쉼표 포함 금액)', () => {
+    expect(parseCsv('a,"b,c",d')).toEqual([['a', 'b,c', 'd']])
+  })
+
+  it('따옴표 짝이 맞지 않는 파일은 사실을 알려준다', () => {
+    const broken = '날짜,채널,상품명,수량,매출액\n2026-07-13,쿠팡,"열린 채 끝난 상품명,5,50000'
+    const rows = parseCsv(broken)
+    expect(rows.unclosedQuote).toBe(true)
+    const rows2 = parseCsv('날짜,채널,상품명,수량,매출액\n2026-07-13,쿠팡,김,5,50000')
+    expect(rows2.unclosedQuote).toBeUndefined()
+    expect(skippedNotice(normalizeSales(rows2))).toBeNull()
+  })
+})
+
+describe('parseAmount (금액·수량 셀 해석)', () => {
+  it('통화기호·쉼표·단위를 걷어낸다', () => {
+    expect(parseAmount('₩1,500,000')).toBe(1500000)
+    expect(parseAmount('2개')).toBe(2)
+    expect(parseAmount('1,500 원')).toBe(1500)
+  })
+
+  it('회계 서식 괄호는 음수다 (환불이 양수로 뒤집히지 않는다)', () => {
+    expect(parseAmount('(1,500)')).toBe(-1500)
+    expect(parseAmount('(₩1,500)')).toBe(-1500)
+    expect(parseAmount('-1500')).toBe(-1500)
+  })
+
+  it('지수 표기를 제대로 읽는다', () => {
+    expect(parseAmount('1.23457E+11')).toBe(123457000000)
+    expect(parseAmount('1.0E-07')).toBeCloseTo(1e-7)
+  })
+
+  it('엑셀 오류 셀은 0이 아니라 해석 불가다', () => {
+    expect(parseAmount('#DIV/0!')).toBeNull()
+    expect(parseAmount('#N/A')).toBeNull()
+    expect(parseAmount('#VALUE!')).toBeNull()
+  })
+
+  it('숫자로 볼 수 없는 표기는 일부만 떼어 쓰지 않는다', () => {
+    expect(parseAmount('12만')).toBeNull()
+    expect(parseAmount('3.5%')).toBeNull()
+    expect(parseAmount('abc')).toBeNull()
+    expect(parseAmount('')).toBeNull()
+    expect(parseAmount(null)).toBeNull()
+  })
+})
+
+describe('해석할 수 없는 금액을 0원 행으로 삼키지 않는다', () => {
+  const rows = [
+    ['날짜', '채널', '상품명', '수량', '매출액'],
+    ['2026-07-13', '쿠팡', '김', '2', '12,000'],
+    ['2026-07-14', '쿠팡', '김', '1', '#DIV/0!'],
+    ['2026-07-15', '쿠팡', '김', '1', '12만'],
+  ]
+
+  it('#DIV/0! 행이 매출 0원으로 집계에 들어가지 않는다', () => {
+    const records = normalizeSales(rows)
+    expect(records).toHaveLength(1)
+    expect(records.map((r) => r.date)).toEqual(['2026-07-13'])
+    // 예전에는 0원 행이 들어가 존재하지 않는 '급감(일평균의 0%)'이 이상감지에 떴다
+    expect(aggregate(records).anomalies).toEqual([])
+  })
+
+  it('사유와 원문을 함께 알려준다 (사용자가 어느 셀인지 찾을 수 있게)', () => {
+    const note = skippedNotice(normalizeSales(rows))
+    expect(note).toContain('숫자로 읽을 수 없는 행 2개')
+    expect(note).toContain('#DIV/0!')
+    expect(note).toContain('12만')
+  })
+
+  it('괄호 음수(환불)는 버리지 않고 음수로 집계한다', () => {
+    const refund = [
+      ['날짜', '채널', '상품명', '수량', '매출액'],
+      ['2026-07-13', '쿠팡', '김', '2', '12,000'],
+      ['2026-07-14', '쿠팡', '김', '1', '(1,500)'],
+    ]
+    const records = normalizeSales(refund)
+    expect(records).toHaveLength(2)
+    expect(aggregate(records).totalAmount).toBe(10500)
   })
 })
 
