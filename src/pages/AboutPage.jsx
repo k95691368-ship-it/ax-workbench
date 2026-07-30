@@ -201,6 +201,21 @@ export default function AboutPage() {
                 ${(stats.input_tokens * INPUT_PRICE + stats.output_tokens * OUTPUT_PRICE).toFixed(2)}
               </span>
             </div>
+            {/* 상한은 "최근 24시간" 롤링이므로 7일 누적만 보면 소진 임박을 알 수 없다.
+                상한과 같은 창으로 재서 남은 예산을 함께 보여준다. */}
+            {stats.day && (
+              <div className="stat-tile">
+                <span className="stat-label">최근 24시간 예산</span>
+                <span className={stats.day.used_pct >= 80 ? 'stat-value budget-tight' : 'stat-value'}>
+                  ${stats.day.spent_usd.toFixed(2)} / ${stats.day.limit_usd.toFixed(2)}
+                </span>
+                <span className="stat-sub">
+                  {stats.day.remaining_usd > 0
+                    ? `남은 예산 $${stats.day.remaining_usd.toFixed(2)}`
+                    : '소진 — 예시 결과로 표시 중'}
+                </span>
+              </div>
+            )}
           </div>
           {stats.failure_reasons?.length > 0 && (
             <div className="fail-reasons">

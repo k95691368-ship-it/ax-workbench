@@ -1,4 +1,5 @@
 import { json } from '../../_lib/http.js'
+import { costOf, DAILY_BUDGET_USD } from '../../_lib/budget.js'
 
 // 최근 7일 AI 호출 지표 요약 (About 페이지 '실측 운영 지표'용)
 export async function onRequestGet(context) {
@@ -66,8 +67,31 @@ export async function onRequestGet(context) {
       byEndpoint = []
     }
 
+    // 상한은 "최근 24시간" 롤링인데 화면에는 7일 누적 비용만 보였다.
+    // 그래서 예산이 곧 소진되는지 아무도 알 수 없었고, 실제로 사이트가 조용히
+    // 예시 결과로 강등된 적이 있다. 상한과 같은 창으로 재서 함께 노출한다.
+    let day = null
+    try {
+      const row = await env.DB.prepare(
+        `SELECT SUM(COALESCE(input_tokens, 0)) AS input_tokens,
+                SUM(COALESCE(output_tokens, 0)) AS output_tokens
+         FROM ai_calls
+         WHERE created_at >= datetime('now', '-1 day')`
+      ).first()
+      const spent = costOf(row?.input_tokens, row?.output_tokens)
+      day = {
+        spent_usd: Math.round(spent * 1000) / 1000,
+        limit_usd: DAILY_BUDGET_USD,
+        remaining_usd: Math.max(0, Math.round((DAILY_BUDGET_USD - spent) * 1000) / 1000),
+        used_pct: Math.min(100, Math.round((spent / DAILY_BUDGET_USD) * 100)),
+      }
+    } catch {
+      day = null
+    }
+
     return json({
       available: true,
+      day,
       days: 7,
       total,
       live_calls: live?.calls || 0,
