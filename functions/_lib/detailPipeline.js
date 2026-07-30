@@ -145,6 +145,16 @@ const SECTION_MAX_TOKENS = 2400
 
 const MIN_SECTIONS = 2
 
+// 프레임 호출이 쓸 만한 헤드라인을 줬는지.
+//
+// 예전에는 `typeof headline === 'string'`만 확인했다. 빈 문자열도 typeof는 'string'이라
+// 통과해서, 최초 생성에서는 빈 <h2>가 "성공"(notice 없음)으로 나가고 재작성에서는
+// 이전 헤드라인을 되살릴 기회를 놓친 채 빈 값으로 덮였다. 섹션 검사(트림 후 비어 있는지)는
+// 이미 이 함정을 막고 있었는데 프레임만 예외로 남아 있었다.
+export function hasHeadline(input) {
+  return typeof input?.headline === 'string' && input.headline.trim() !== ''
+}
+
 // 상세페이지를 한 번에 병렬로 생성한다.
 // 반환: { result, usage, degraded, timing }
 // system: 공통 시스템 프롬프트 (필수 표기 문구는 넣지 말라고 지시된 버전)
@@ -178,7 +188,7 @@ export async function generateDetail(env, { system, systemWithRequired = system,
   const [frameResult, ...sectionResults] = settled
 
   // 헤드라인이 없으면 상세페이지라고 부를 수 없다 — 프레임 실패는 강등 사유다.
-  if (frameResult.status !== 'fulfilled' || typeof frameResult.value.input?.headline !== 'string') {
+  if (frameResult.status !== 'fulfilled' || !hasHeadline(frameResult.value.input)) {
     // 섹션 호출은 이미 토큰을 썼을 수 있다 — 실제 지출을 예산 집계에 남긴다
     throw withUsage(
       frameResult.status === 'rejected'
@@ -297,7 +307,7 @@ ${REVISE_GUIDE} 이 섹션만 다시 쓰고, 다른 섹션이 맡은 내용은 �
   const [frameResult, ...sectionResults] = settled
 
   // 프레임 재작성이 실패하면 이전 헤드라인을 그대로 쓴다 — 고치려다 잃는 것보다 낫다.
-  const frameOk = frameResult.status === 'fulfilled' && typeof frameResult.value.input?.headline === 'string'
+  const frameOk = frameResult.status === 'fulfilled' && hasHeadline(frameResult.value.input)
   const frame = frameOk ? frameResult.value.input : previous
   let kept = frameOk ? 0 : 1
 

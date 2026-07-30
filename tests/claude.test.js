@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { callClaudeTool, ensureContract, failureCode } from '../functions/_lib/claude.js'
-import { checkRateLimit, RATE_NOTICE } from '../functions/_lib/rateLimit.js'
+import { RATE_NOTICE } from '../functions/_lib/rateLimit.js'
 
 const ENV = { CLAUDE_API_KEY: 'test-key' }
 const TOOL = { name: 'record_test', input_schema: { type: 'object' } }
@@ -87,41 +87,10 @@ describe('ensureContract', () => {
   })
 })
 
-describe('checkRateLimit', () => {
-  // 조건부 INSERT 한 문장으로 처리하므로, 삽입이 일어났는지(meta.changes)로 허용 여부를 판단한다
-  function mockDb(changes, { throws = false } = {}) {
-    const stmt = {
-      bind: () => stmt,
-      run: async () => {
-        if (throws) throw new Error('D1 down')
-        return { meta: { changes } }
-      },
-    }
-    return { prepare: () => stmt }
-  }
-
-  it('빈자리가 있으면 기록하고 허용한다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(1) }, 'b', 5, 60)).toBe(true)
-  })
-
-  it('한도에 도달하면 삽입이 일어나지 않아 차단된다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(0) }, 'b', 5, 60)).toBe(false)
-  })
-
-  it('DB 오류 시 기본은 서비스 연속성을 위해 통과시킨다 (사용자 편의 상한)', async () => {
-    expect(await checkRateLimit({ DB: mockDb(0, { throws: true }) }, 'b', 5, 60)).toBe(true)
-  })
-
-  it('비용을 지키는 상한은 DB 오류 시 막는 쪽으로 기운다 (fail-closed)', async () => {
-    expect(
-      await checkRateLimit({ DB: mockDb(0, { throws: true }) }, 'b', 5, 60, { failOpen: false })
-    ).toBe(false)
-  })
-
-  it('DB 바인딩이 없으면 제한 없이 통과한다', async () => {
-    expect(await checkRateLimit({}, 'b', 5, 60)).toBe(true)
-  })
-})
+// 상한 판정 자체의 테스트는 tests/rateLimit.test.js 로 옮겼다.
+// 단일 버킷용 checkRateLimit은 제거했다 — 여러 상한을 함께 판정해야
+// "막힌 상한이 있으면 아무 몫도 쓰지 않는다"를 지킬 수 있고,
+// 같은 규칙을 두 함수가 각자 구현하면 한쪽만 고쳐져 어긋난다.
 
 describe('한도 안내 문구 (에러 벽 대신 예시 결과로 강등)', () => {
   it('IP 한도와 전체 한도의 안내가 서로 다르다', () => {

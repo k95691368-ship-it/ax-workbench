@@ -1,5 +1,5 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
-import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
+import { checkRateLimitGroup, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
@@ -174,18 +174,22 @@ export async function onRequestPost(context) {
   const plannedCalls = 1 + (previous ? previous.sections.length : SECTION_BLUEPRINT.length)
   const budget = await checkDailyBudget(env, undefined, { calls: plannedCalls })
   if (!budget.ok) {
+    // 예산 강등도 계측한다 — 기록하지 않으면 About의 '기능별 안정성' 요청 수에서 이 요청들이
+    // 통째로 빠지고 '예시가 나간 사유' 목록에 budget이 영원히 나타나지 않는다.
+    // 운영자가 "왜 하루 종일 예시만 나갔는가"를 지표로 확인할 방법이 없어진다.
+    logCall(context, { endpoint: 'detail-page', mode: 'demo', startedAt, reason: 'budget' })
     const demo = demoResult(input)
     return json({ ...demo, ad_check: adCheckDetail(demo, brand), ...brandMeta(demo, brand), notice: budgetNotice(budget) })
   }
 
   // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다
-  const limited = async (bucket, max, opts) => !(await checkRateLimit(env, bucket, max, 3600, opts))
+  // 두 상한을 함께 판정한다 — 하나라도 막히면 어느 쪽 몫도 소모하지 않는다
   const ip = clientIp(request)
-  const rateNotice = (await limited(`ax:detail:${ip}`, 8))
-    ? RATE_NOTICE.ip
-    : (await limited('ax:detail:all', 60, { failOpen: false }))
-      ? RATE_NOTICE.all
-      : null
+  const blocked = await checkRateLimitGroup(env, [
+    { bucket: `ax:detail:${ip}`, maxHits: 8, notice: RATE_NOTICE.ip },
+    { bucket: 'ax:detail:all', maxHits: 60, failOpen: false, notice: RATE_NOTICE.all },
+  ])
+  const rateNotice = blocked?.notice || null
   if (rateNotice) {
     const demo = demoResult(input)
     logCall(context, { endpoint: 'detail-page', mode: 'demo', startedAt, reason: 'rate_limit' })

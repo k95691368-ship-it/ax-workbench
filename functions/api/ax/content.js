@@ -1,5 +1,5 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
-import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
+import { checkRateLimitGroup, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { callClaudeTool, hasApiKey, COMPLIANCE_RULES } from '../../_lib/claude.js'
 import { checkTexts } from '../../_lib/adcheck.js'
@@ -292,18 +292,20 @@ export async function onRequestPost(context) {
   // 일일 예산(USD) 상한 — 회수가 아니라 실제 지출로 막는다
   const budget = await checkDailyBudget(env, undefined, { calls: chunkChannels(channels).length })
   if (!budget.ok) {
+    // 예산 강등도 계측한다 — 기록하지 않으면 지표에서 이 요청이 통째로 빠진다
+    logCall(context, { endpoint: 'content', mode: 'demo', startedAt, reason: 'budget' })
     const demo = demoResult(channels)
     return json({ ...demo, results: withAdCheck(demo.results, brand), ...brandMeta(demo.results, brand), notice: budgetNotice(budget) })
   }
 
-  // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다
-  const limited = async (bucket, max, opts) => !(await checkRateLimit(env, bucket, max, 3600, opts))
+  // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다.
+  // 두 상한을 함께 판정한다 — 하나라도 막히면 어느 쪽 몫도 소모하지 않는다.
   const ip = clientIp(request)
-  const rateNotice = (await limited(`ax:content:${ip}`, 8))
-    ? RATE_NOTICE.ip
-    : (await limited('ax:content:all', 60, { failOpen: false }))
-      ? RATE_NOTICE.all
-      : null
+  const blocked = await checkRateLimitGroup(env, [
+    { bucket: `ax:content:${ip}`, maxHits: 8, notice: RATE_NOTICE.ip },
+    { bucket: 'ax:content:all', maxHits: 60, failOpen: false, notice: RATE_NOTICE.all },
+  ])
+  const rateNotice = blocked?.notice || null
   if (rateNotice) {
     const demo = demoResult(channels)
     logCall(context, { endpoint: 'content', mode: 'demo', startedAt, reason: 'rate_limit' })

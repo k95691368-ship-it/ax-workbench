@@ -1,5 +1,5 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
-import { checkRateLimit, RATE_NOTICE } from '../../_lib/rateLimit.js'
+import { checkRateLimitGroup, RATE_NOTICE } from '../../_lib/rateLimit.js'
 import { checkDailyBudget, budgetNotice } from '../../_lib/budget.js'
 import { callClaudeTool, ensureContract, hasApiKey, failureCode } from '../../_lib/claude.js'
 import { logCall } from '../../_lib/telemetry.js'
@@ -105,14 +105,16 @@ export async function onRequestPost(context) {
     return json({ ...demoResult(compact), notice: budgetNotice(budget) })
   }
 
-  // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다
-  const limited = async (bucket, max, opts) => !(await checkRateLimit(env, bucket, max, 3600, opts))
+  // 한도에 걸려도 화면을 막다른 길로 만들지 않는다 — AI 호출만 막고 예시 결과로 강등한다.
+  // 두 상한을 함께 판정한다 — 하나라도 막히면 어느 쪽 몫도 소모하지 않는다.
+  // 전역 상한은 비용을 지키는 쪽이므로 D1 오류 시 막는다(failOpen: false) —
+  // 이 엔드포인트만 이 옵션이 빠져 있어 장애 시 비용 상한이 통째로 사라졌다.
   const ip = clientIp(request)
-  const rateNotice = (await limited(`ax:sales:${ip}`, 10))
-    ? RATE_NOTICE.ip
-    : (await limited('ax:sales:all', 80))
-      ? RATE_NOTICE.all
-      : null
+  const blocked = await checkRateLimitGroup(env, [
+    { bucket: `ax:sales:${ip}`, maxHits: 10, notice: RATE_NOTICE.ip },
+    { bucket: 'ax:sales:all', maxHits: 80, failOpen: false, notice: RATE_NOTICE.all },
+  ])
+  const rateNotice = blocked?.notice || null
   if (rateNotice) {
     logCall(context, { endpoint: 'sales-report', mode: 'demo', startedAt, reason: 'rate_limit' })
     return json({ ...demoResult(compact), notice: rateNotice })

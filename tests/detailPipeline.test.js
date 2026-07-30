@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { generateDetail, reviseDetail, SECTION_BLUEPRINT } from '../functions/_lib/detailPipeline.js'
+import { generateDetail, reviseDetail, SECTION_BLUEPRINT, hasHeadline } from '../functions/_lib/detailPipeline.js'
 
 const ENV = { CLAUDE_API_KEY: 'test-key' }
 const N = SECTION_BLUEPRINT.length
@@ -150,13 +150,13 @@ const REVISED_FRAME = {
   designer_notes: '새메모',
 }
 
-function mockRevise({ fail = [] } = {}) {
+function mockRevise({ fail = [], frame = REVISED_FRAME } = {}) {
   let idx = 0
   return vi.fn(async (_url, init) => {
     const payload = JSON.parse(init.body)
     if (payload.tools[0].name === 'record_revised_frame') {
       if (fail.includes('frame')) throw new Error('frame down')
-      return apiResponse(REVISED_FRAME)
+      return apiResponse(frame)
     }
     const i = idx++
     if (fail.includes(i)) throw new Error('section down')
@@ -238,6 +238,32 @@ describe('재생성 폴백의 완결성', () => {
     expect(result.keywords).toEqual(PREVIOUS.keywords)
     expect(result.faq).toEqual(PREVIOUS.faq)
     expect(result.designer_notes).toBe(PREVIOUS.designer_notes)
+  })
+})
+
+describe('빈 헤드라인을 성공으로 보지 않는다', () => {
+  // typeof '' === 'string' 이라 예전 검사(typeof만 확인)를 그냥 통과했다.
+  // 섹션 검사는 트림 후 비어 있는지까지 보는데 프레임만 예외로 남아 있었다.
+  it('최초 생성: 빈 헤드라인은 계약 위반으로 처리한다 (빈 <h2>를 성공으로 내보내지 않는다)', async () => {
+    vi.stubGlobal('fetch', mockFetch({ frame: { ...FRAME, headline: '   ' } }))
+    await expect(generateDetail(ENV, CALL)).rejects.toThrow(/헤드라인/)
+  })
+
+  it('재작성: 빈 헤드라인이 오면 이전 헤드라인을 지킨다', async () => {
+    vi.stubGlobal('fetch', mockRevise({ frame: { ...REVISED_FRAME, headline: '' } }))
+    const { result, degraded } = await reviseDetail(ENV, REVISE_CALL)
+    expect(result.headline).toBe('이전 헤드라인')
+    expect(degraded).toContain('1개')
+    // 본문 재작성은 성공했으므로 그쪽은 새 내용이어야 한다
+    expect(result.sections[0].body).toBe('새본문0')
+  })
+
+  it('hasHeadline: 공백만 있는 헤드라인은 없는 것으로 본다', () => {
+    expect(hasHeadline({ headline: '유산균 30포' })).toBe(true)
+    expect(hasHeadline({ headline: '' })).toBe(false)
+    expect(hasHeadline({ headline: '  \n ' })).toBe(false)
+    expect(hasHeadline({})).toBe(false)
+    expect(hasHeadline(null)).toBe(false)
   })
 })
 
