@@ -26,6 +26,16 @@ const REASON_LABELS = {
   network: '네트워크 오류',
   rate_limited: 'AI 서비스 혼잡',
   no_tool_use: 'AI 응답 파싱 실패 (고쳐야 할 문제)',
+  budget: '예산 상한 (의도된 비용 보호)',
+  refusal: 'AI가 생성을 거절 (입력 문구 조정 필요)',
+}
+
+// 거절 사유는 분류에 따라 refusal_cyber처럼 뒤에 항목이 붙어 온다 —
+// 정확 일치로만 찾으면 라벨이 안 붙어 사용자에게 코드가 그대로 노출된다.
+function reasonLabel(reason) {
+  if (REASON_LABELS[reason]) return REASON_LABELS[reason]
+  if (String(reason).startsWith('refusal')) return REASON_LABELS.refusal
+  return null
 }
 
 const MAPPING = [
@@ -226,7 +236,7 @@ export default function AboutPage() {
                 {stats.failure_reasons.map((f) => (
                   <li key={f.reason}>
                     <code>{f.reason}</code> {f.calls}건
-                    {REASON_LABELS[f.reason] ? ` — ${REASON_LABELS[f.reason]}` : ''}
+                    {reasonLabel(f.reason) ? ` — ${reasonLabel(f.reason)}` : ''}
                   </li>
                 ))}
               </ul>

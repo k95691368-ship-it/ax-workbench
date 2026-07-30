@@ -84,6 +84,17 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
   if (data.stop_reason === 'max_tokens') {
     throw failure('max_tokens', 'AI 응답이 너무 길어 중단되었습니다. 입력을 줄여 다시 시도해주세요.')
   }
+  // 안전 분류기가 요청을 거절하면 오류가 아니라 HTTP 200에 stop_reason='refusal'로 온다.
+  // 따로 잡지 않으면 tool_use가 없다는 이유로 no_tool_use로 기록되어 계측에 **틀린 사유**가 남는다.
+  // 건강기능식품 표시광고를 다루는 서비스라 실제로 일어날 수 있는 경로다.
+  // stop_details는 null일 수 있으므로 판단은 항상 stop_reason으로 한다.
+  if (data.stop_reason === 'refusal') {
+    const category = data.stop_details?.category
+    throw failure(
+      category ? `refusal_${category}` : 'refusal',
+      'AI가 이 요청의 생성을 거절했습니다. 입력 문구를 바꿔 다시 시도해주세요.'
+    )
+  }
   const toolUse = Array.isArray(data.content)
     ? data.content.find((block) => block.type === 'tool_use')
     : null

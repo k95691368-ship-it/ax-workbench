@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { callClaudeTool, ensureContract } from '../functions/_lib/claude.js'
+import { callClaudeTool, ensureContract, failureCode } from '../functions/_lib/claude.js'
 import { checkRateLimit, RATE_NOTICE } from '../functions/_lib/rateLimit.js'
 
 const ENV = { CLAUDE_API_KEY: 'test-key' }
@@ -132,6 +132,38 @@ describe('한도 안내 문구 (에러 벽 대신 예시 결과로 강등)', () 
     for (const notice of [RATE_NOTICE.ip, RATE_NOTICE.all]) {
       expect(notice).toContain('예시 결과')
       expect(notice).toContain('다시 시도')
+    }
+  })
+})
+
+describe('안전 분류기 거절 (오류가 아니라 HTTP 200으로 온다)', () => {
+  it('stop_reason=refusal을 no_tool_use가 아니라 refusal로 분류한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        apiResponse({ stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'bio' }, content: [] })
+      )
+    )
+    try {
+      await callClaudeTool(ENV, CALL)
+      throw new Error('여기 오면 안 된다')
+    } catch (err) {
+      // 사유가 틀리게 남으면 무엇을 고쳐야 할지 알 수 없다
+      expect(failureCode(err)).toBe('refusal_bio')
+      expect(err.message).toContain('거절')
+    }
+  })
+
+  it('분류 정보가 없어도 refusal로 잡는다 (stop_details는 null일 수 있다)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => apiResponse({ stop_reason: 'refusal', content: [] }))
+    )
+    await expect(callClaudeTool(ENV, CALL)).rejects.toThrow(/거절/)
+    try {
+      await callClaudeTool(ENV, CALL)
+    } catch (err) {
+      expect(failureCode(err)).toBe('refusal')
     }
   })
 })
