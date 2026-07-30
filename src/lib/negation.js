@@ -15,8 +15,13 @@
 
 // 키워드 뒤에 붙어 부정을 만드는 단서
 const AFTER_CUES = ['없', '않', '아니', '아닙', '불가', '무관', '전혀']
-// 키워드 앞에 붙는 부정 부사 ("안 갔어요", "못 먹었어요")
-const BEFORE_CUES = ['안 ', '못 ', '안', '못']
+// 키워드 앞에 붙는 부정 부사 ("안 갔어요", "못 먹었어요").
+//
+// 반드시 **독립된 낱말**이어야 한다. 예전에는 맨 '안'·'못'도 단서로 인정했는데,
+// 그러면 앞 단어의 끝 글자가 우연히 안/못이기만 해도 부정으로 오판한다.
+// 에스컬레이션에서 오판은 "진짜 항의를 자동 응답으로 내보내는" 방향이라, 안전 게이트를
+// 약화시키는 규칙은 두지 않는다.
+const BEFORE_ADVERB = /(?:^|\s)(?:안|못)\s*$/
 // 키워드 뒤에 오는 부정 부사 ("곰팡이 안 생기고") — 한국어는 부사가 서술어 앞에 붙으므로
 // 목적어가 먼저 오는 어순에서는 부정이 키워드 "뒤"에 온다.
 // '안내'·'안전'처럼 '안'으로 시작하는 다른 단어와 섞이지 않도록 앞뒤 공백을 요구한다.
@@ -48,10 +53,7 @@ export function isNegated(text, index, length) {
   if (adverb && !hasClauseBreak(after.slice(0, adverb.index))) return true
 
   const before = source.slice(Math.max(0, index - BEFORE_WINDOW), index)
-  for (const cue of BEFORE_CUES) {
-    if (before.endsWith(cue)) return true
-  }
-  return false
+  return BEFORE_ADVERB.test(before)
 }
 
 // "안내드릴 수 없습니다" 류 — 규정을 지키려고 쓰는 거절·불가 안내 문장.

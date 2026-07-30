@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { detectEscalation, SAFE_REPLY } from '../src/lib/escalation.js'
+import { isNegated } from '../src/lib/negation.js'
 import { detectInjection, userDataBlock, userDataJson, injectionNotice } from '../functions/_lib/promptSafety.js'
 import { applyEscalationRules } from '../functions/api/ax/reviews.js'
 import { failure, failureCode, ensureContract } from '../functions/_lib/claude.js'
@@ -125,5 +126,26 @@ describe('실패 사유 코드 (텔레메트리용)', () => {
 
   it('사유가 없는 오류는 unknown으로 떨어진다', () => {
     expect(failureCode(new Error('그냥 오류'))).toBe('unknown')
+  })
+})
+
+describe('부정 문맥 판정이 안전 게이트를 약화시키지 않는다', () => {
+  // 위치를 손으로 세면 틀리기 쉬우므로 찾아서 넘긴다
+  const negated = (text, word) => isNegated(text, text.indexOf(word), word.length)
+
+  it('앞 단어 끝 글자가 우연히 안/못이어도 부정으로 보지 않는다', () => {
+    // '안'이 독립된 낱말이 아니라 앞 단어에 붙어 있는 경우 — 부정이 아니다
+    expect(negated('마음이 편안병원 방문', '병원')).toBe(false)
+    expect(negated('잘못보상 요구합니다', '보상')).toBe(false)
+  })
+
+  it('독립된 부정 부사는 그대로 인정한다', () => {
+    expect(negated('병원 안 갔어요', '병원')).toBe(true)
+    expect(negated('안 병원 갔어요', '병원')).toBe(true)
+  })
+
+  it('실제 위험 신호는 여전히 올린다 (완화가 구멍이 되지 않게)', () => {
+    expect(detectEscalation('잘못 배송된 것도 모자라 보상 요구합니다').escalate).toBe(true)
+    expect(detectEscalation('편안하게 먹다가 두드러기가 나서 병원 갔어요').escalate).toBe(true)
   })
 })
