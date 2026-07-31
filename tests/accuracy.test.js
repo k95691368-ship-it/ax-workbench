@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { detectEscalation } from '../src/lib/escalation.js'
 import { scanText, ALLOWED_PHRASES } from '../src/lib/compliance.js'
 import { checkClaims, checkPromises } from '../src/lib/factCheck.js'
 import { normalizeDetail, normalizeChannelContents, normalizeListing } from '../functions/_lib/shape.js'
@@ -278,5 +279,43 @@ describe('법정 필수 표기는 어미가 달라도 위반이 아니다', () =
     expect(
       scanText('건강기능식품은 질병의 예방·치료를 위한 의약품이 아니며 균형 잡힌 식생활이 중요합니다')
     ).toEqual([])
+  })
+})
+
+describe('증상 지속과 증상 해소를 가른다 (안전 게이트의 방향)', () => {
+  // 오답의 비용이 한쪽으로 심하게 기운다: 증상 지속을 완화로 처리하면
+  // 진짜 건강 이상 호소에 자동 응대가 나간다.
+  const persists = [
+    '두드러기가 안 없어져요',
+    '가려움이 안 가라앉아요',
+    '통증이 안 사라져요',
+    '설사가 멈추지 않아요',
+    '두드러기가 없어지지 않아요',
+  ]
+  const resolved = [
+    '가려움 없어졌어요',
+    '통증이 사라졌습니다',
+    '두드러기 없어요',
+    '포장이 따갑지 않게 잘 왔어요',
+    '부작용 없었어요',
+    '벌레 하나 없이 깨끗해요',
+  ]
+
+  for (const t of persists) {
+    it(`증상 지속으로 본다: ${t}`, () => {
+      expect(detectEscalation(t).escalate).toBe(true)
+    })
+  }
+
+  for (const t of resolved) {
+    it(`완화로 본다: ${t}`, () => {
+      expect(detectEscalation(t).escalate).toBe(false)
+    })
+  }
+
+  it('같은 증상을 어떻게 적었느냐로 판정이 갈리지 않는다', () => {
+    // '두드러기'는 잡고 '가려움'은 못 잡으면 사전이 반쪽이다
+    expect(detectEscalation('먹고 나서 가려움이 심해요').escalate).toBe(true)
+    expect(detectEscalation('먹고 나서 두드러기가 심해요').escalate).toBe(true)
   })
 })

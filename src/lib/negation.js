@@ -14,7 +14,9 @@
 //  2) 절 경계(마침표·쉼표·접속)를 넘어서면 부정으로 보지 않는다.
 
 // 키워드 뒤에 붙어 부정을 만드는 단서
-const AFTER_CUES = ['없', '않', '아니', '아닙', '불가', '무관', '전혀']
+// '사라'가 없어서 "통증이 사라졌습니다"가 어떤 단서에도 걸리지 않았다 —
+// 증상이 해소됐다는 문장이 그대로 에스컬레이션으로 갔다.
+const AFTER_CUES = ['없', '않', '아니', '아닙', '불가', '무관', '전혀', '사라', '가라앉', '나았', '나아졌']
 
 // **서술어 부정**은 키워드 부정이 아니다 — 오히려 증상이 계속된다는 뜻이다.
 //
@@ -28,6 +30,12 @@ const AFTER_CUES = ['없', '않', '아니', '아닙', '불가', '무관', '전�
 // 구별 기준은 어미다: 단서 바로 앞이 '-지'(멈추지·가라앉지·낫지·사라지지)면 그 부정은
 // 키워드가 아니라 **서술어**에 걸린 것이다.
 const PREDICATE_NEGATION = /지\s*$/
+
+// 단, 그 '-지'가 **키워드 자신**의 어미면 이야기가 다르다.
+//   "따갑지 않게 잘 왔어요" — 부정되는 것이 키워드('따갑다') 자체다 → 완화가 맞다
+//   "설사가 멈추지 않아요"   — 부정되는 것은 다른 서술어('멈추다')다 → 완화하면 안 된다
+// 둘의 차이는 키워드와 '-지' 사이에 다른 말이 있는지뿐이다.
+const KEYWORD_OWN_ENDING = /^지\s*$/
 
 // 단서 자체가 다시 부정된 경우 — 이중부정이므로 완화가 아니다.
 //   "어지럼증이 없어지지 않아요"
@@ -55,6 +63,10 @@ const CLAUSE_BREAKS = ['.', '!', '?', '\n', ',', ';', '·', '…', '"', "'"]
 const AFTER_WINDOW = 8
 const BEFORE_WINDOW = 3
 
+// "없어지다·가라앉다·낫다"처럼 **증상이 사라진다**는 뜻의 서술어.
+// 여기에 '안'이 붙으면 부정이 아니라 증상 지속이다 — 완화로 처리하면 안 된다.
+const VANISH_PREDICATE = /^\s*(없어|사라|가라앉|낫|나아|줄어|빠지|괜찮아|좋아)/
+
 function hasClauseBreak(segment) {
   return [...segment].some((ch) => CLAUSE_BREAKS.includes(ch))
 }
@@ -69,17 +81,31 @@ export function isNegated(text, index, length) {
     const gap = after.slice(0, at)
     // 단서 앞에 절 경계가 있으면 다른 절의 부정이므로 인정하지 않는다
     if (hasClauseBreak(gap)) continue
-    // 서술어에 걸린 부정("멈추지 않아요")은 키워드 부정이 아니라 증상 지속을 뜻한다
-    if (PREDICATE_NEGATION.test(gap)) continue
+    // 서술어에 걸린 부정("멈추지 않아요")은 키워드 부정이 아니라 증상 지속을 뜻한다.
+    // 다만 그 '-지'가 키워드 자신의 어미면("따갑지 않게") 진짜 부정이므로 완화한다.
+    if (PREDICATE_NEGATION.test(gap) && !KEYWORD_OWN_ENDING.test(gap)) continue
     // 단서가 다시 부정된 이중부정("없어지지 않아요")도 증상 지속이다.
     // 창(8글자)을 넘어갈 수 있으므로 원문에서 단서 뒤를 본다.
     const afterCue = source.slice(index + length + at + cue.length, index + length + at + cue.length + 10)
     if (CUE_ITSELF_NEGATED.test(afterCue)) continue
+    // 단서 **앞**에 부정 부사가 붙은 경우도 이중부정이다 — "안 없어져요", "안 가라앉아요".
+    // 뒤쪽 이중부정('없어지지 않아요')만 막고 있어서, 앞쪽 형태가 그대로 통과했다.
+    // 증상을 호소하는 문장이 완화로 처리되면 에스컬레이션 게이트가 열린다.
+    if (BEFORE_ADVERB.test(gap)) continue
     return true
   }
 
   const adverb = ADVERB_AFTER.exec(after)
-  if (adverb && !hasClauseBreak(after.slice(0, adverb.index))) return true
+  if (adverb && !hasClauseBreak(after.slice(0, adverb.index))) {
+    // '안 + 소멸 서술어'는 완화가 아니라 **증상 지속**이다.
+    //   "두드러기가 안 없어져요" · "가려움이 안 가라앉아요" · "발진이 안 낫네요"
+    // 이걸 부정으로 처리하면 증상을 호소하는 문장이 통째로 완화되어
+    // 에스컬레이션 게이트가 열린다 — 안전 판정에서 가장 비싼 방향의 오답이다.
+    // (같은 이유로 이미 '~지 않다'와 이중부정을 위에서 걸러내고 있다)
+    const afterAdverb = after.slice(adverb.index + adverb[0].length)
+    if (VANISH_PREDICATE.test(afterAdverb)) return false
+    return true
+  }
 
   const before = source.slice(Math.max(0, index - BEFORE_WINDOW), index)
   return BEFORE_ADVERB.test(before)

@@ -231,10 +231,21 @@ export function autoFixTitle(title, channelId) {
     changes.push({ code: 'char', detail: `특수문자 제거: ${chars.join(' ')}` })
   }
 
-  // 2) 홍보·거래조건 문구 제거
+  // 2) 홍보·거래조건 문구 제거 — **어절 단위로** 지운다.
+  //
+  // 예전에는 부분 문자열을 그대로 잘라냈다. 그래서 '최고'가 '최고급'을 깨뜨려
+  // "최고급 유산균 30포"가 "급 유산균 30포"가 됐고, "인기상품 도시락김"은
+  // "상품 도시락김"이 됐다. 그러고도 규정을 통과했다며 '등록 가능'으로 표시됐다 —
+  // 연락처 제거에서 이미 겪은 것과 같은 문제인데 여기만 부분 치환으로 남아 있었다.
+  // 홍보 표현이 든 어절은 통째로 뺀다. 조각을 남기느니 어절 하나를 잃는 편이 낫다.
   const promos = promoHits(text, rule.promo)
-  for (const p of promos) text = text.split(p).join(' ')
-  if (promos.length > 0) changes.push({ code: 'promo', detail: `홍보 문구 제거: ${promos.join(', ')}` })
+  if (promos.length > 0) {
+    text = text
+      .split(/\s+/)
+      .filter((token) => !promos.some((p) => token.includes(p)))
+      .join(' ')
+    changes.push({ code: 'promo', detail: `홍보 문구가 든 어절 제거: ${promos.join(', ')}` })
+  }
 
   // 3) 연락처·외부 유도 제거 — 이걸 남기면 교정했다고 하면서 제재 사유가 그대로 남는다.
   //    부분 치환이 아니라 **어절 단위로** 지운다 (www.example.co.kr에서 앞뒤만 지우면

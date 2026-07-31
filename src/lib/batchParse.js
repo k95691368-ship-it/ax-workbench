@@ -27,7 +27,7 @@ export function parseProducts(text) {
 
 // 엑셀/CSV 헤더 이름의 흔한 변형들 — 실무 파일마다 컬럼명이 제각각이라 별칭으로 흡수한다
 const PRODUCT_ALIASES = {
-  name: ['상품명', '제품명', '품명', '상품 이름', 'name', 'product', 'title'],
+  name: ['상품명', '제품명', '품명', '상품 이름', '제품 이름', '품목명', 'name', 'product', 'title'],
   category: ['카테고리', '분류', '대분류', '상품분류', 'category'],
   features: ['특징', '주요특징', '상품특징', '설명', '상품설명', 'features', 'description'],
 }
@@ -66,12 +66,28 @@ export function rowsToProducts(rows) {
 
   const header = data[0]
   const nameCol = findCol(header, PRODUCT_ALIASES.name)
-  const hasHeader = nameCol !== -1
+  const categoryCol = findCol(header, PRODUCT_ALIASES.category)
+  const featuresCol = findCol(header, PRODUCT_ALIASES.features)
+
+  // 헤더 판정.
+  //
+  // 상품명 별칭 하나에만 걸면, 그 열 이름이 목록에 없는 파일에서 **헤더 행 자체가
+  // 상품 1개로 등록된다**('제품 이름 | 구분 | 비고'이라는 상품이 생겨 AI 등록 요청까지 간다).
+  //
+  // 그렇다고 "아무 열이나 별칭에 맞으면 헤더"로 넓히면 반대로 실제 상품을 잃는다 —
+  // ['유산균','식품','설명']처럼 데이터 행의 한 칸이 우연히 별칭과 같으면 그 상품이
+  // 헤더로 오인돼 사라진다. 상품을 잃는 쪽이 훨씬 나쁘다.
+  // 그래서 상품명 열을 찾았거나, **두 개 이상**의 열이 별칭에 맞을 때만 헤더로 본다
+  // (데이터 행의 두 칸이 동시에 별칭과 같은 경우는 사실상 없다).
+  const aliasHits = [nameCol, categoryCol, featuresCol].filter((i) => i !== -1).length
+  const hasHeader = nameCol !== -1 || aliasHits >= 2
   const cols = hasHeader
     ? {
-        name: nameCol,
-        category: findCol(header, PRODUCT_ALIASES.category),
-        features: findCol(header, PRODUCT_ALIASES.features),
+        // 상품명 열을 못 찾았는데 헤더는 있는 경우 — 첫 열을 상품명으로 본다
+        // (헤더를 데이터로 쓰는 것보다 낫고, 화면의 인식 개수와도 어긋나지 않는다)
+        name: nameCol === -1 ? 0 : nameCol,
+        category: categoryCol,
+        features: featuresCol,
       }
     : { name: 0, category: 1, features: 2 }
   const body = hasHeader ? data.slice(1) : data
