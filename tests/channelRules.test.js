@@ -9,6 +9,7 @@ import {
   getChannelRule,
 } from '../src/lib/channelRules.js'
 import { channelCsv, buildChannelRows, exportableChannels } from '../src/lib/channelExport.js'
+import { recommendPrice } from '../src/lib/pricing.js'
 
 const CLEAN = '데일리 장편한 유산균 30포 19종 프로바이오틱스 아연'
 
@@ -260,5 +261,45 @@ describe('도구가 자기 산출물에 대해 사실대로 말한다', () => {
     expect(out.pricing.ok).toBe(false)
     expect(out.pricing.reason).toContain('마진')
     expect(out.uploadable).toBe(false)
+  })
+})
+
+describe('교정 후 상품명이 사라진 상품을 조용히 내보내지 않는다', () => {
+  const listing = { titles: ['★★★♥♥'], search_keywords: ['a'], tags: ['b'], category_paths: ['c'] }
+  const full = { pricing: { cost: 1000, marginRate: 0.3 }, defaults: { stock: 1, origin: '국내', maker: 'm', brand: 'b' } }
+
+  it('빈 상품명 행을 만들지 않는다', () => {
+    // 예전에는 상품명 칸이 ""인 행이 CSV로 나갔다 — 그대로 올리면 반려된다
+    const out = channelCsv('smartstore', [{ name: '특수문자만', listing }], full)
+    expect(out.rows).toHaveLength(0)
+    expect(out.dropped).toHaveLength(1)
+    expect(out.dropped[0].reason).toContain('상품명이 남지 않았습니다')
+  })
+
+  it('빠진 상품이 있으면 등록 가능이라고 말하지 않는다', () => {
+    const out = channelCsv('smartstore', [{ name: '특수문자만', listing }], full)
+    expect(out.uploadable).toBe(false)
+  })
+
+  it('정상 상품과 섞여 있어도 정상 상품만 내보내고 빠진 것을 알린다', () => {
+    const ok = { titles: ['데일리 장편한 유산균 30포'], search_keywords: ['유산균'], tags: [], category_paths: ['c'] }
+    const out = channelCsv('smartstore', [{ name: '정상', listing: ok }, { name: '특수문자만', listing }], full)
+    expect(out.rows).toHaveLength(1)
+    expect(out.rows[0][0]).toContain('유산균')
+    expect(out.dropped).toHaveLength(1)
+    expect(out.uploadable).toBe(false)
+  })
+})
+
+describe('말이 되지 않는 가격 입력을 숫자로 만들어 주지 않는다', () => {
+  it('목표 마진율이 음수면 가격을 내지 않고 이유를 말한다', () => {
+    // 식은 성립해서 원가 아래 가격이 조용히 나왔고, 그 값이 등록 양식의 판매가로 들어갔다
+    const r = recommendPrice('coupang', { cost: 10000, marginRate: -0.5 })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('음수')
+  })
+
+  it('정상 마진율은 그대로 계산한다', () => {
+    expect(recommendPrice('coupang', { cost: 10000, marginRate: 0.3 }).ok).toBe(true)
   })
 })

@@ -90,6 +90,8 @@ export function buildChannelRows(channelId, items, { pricing = null, defaults = 
   const rows = []
   const adjusted = []
   const blocked = []
+  // 교정 결과 상품명이 사라져 행을 만들 수 없었던 상품
+  const dropped = []
 
   for (const item of items || []) {
     const listing = item.listing || {}
@@ -97,6 +99,20 @@ export function buildChannelRows(channelId, items, { pricing = null, defaults = 
     if (!source) continue
 
     const fixed = autoFixTitle(source, channelId)
+
+    // 특수문자·홍보 문구만으로 된 상품명("★★★")은 교정 후 아무것도 남지 않는다.
+    // 그대로 행을 만들면 상품명 칸이 빈 CSV가 나가는데, 화면은 '지금 바로 등록 가능'이라고
+    // 말했다 — 도구가 자기 산출물을 두고 거짓말하는 바로 그 경우다.
+    // 쓸 수 없는 행은 만들지 않고, 왜 빠졌는지 알린다.
+    if (!fixed.title.trim()) {
+      dropped.push({
+        name: item.name || source,
+        from: source,
+        reason: '교정 후 상품명이 남지 않았습니다 — 특수문자·홍보 문구만으로 된 상품명입니다.',
+      })
+      continue
+    }
+
     // 상품별 값이 있으면 그것이 우선한다 (대량 등록에서는 상품마다 원가가 다르다)
     const ctx = {
       title: fixed.title,
@@ -123,8 +139,10 @@ export function buildChannelRows(channelId, items, { pricing = null, defaults = 
     rows,
     adjusted,
     blocked,
+    dropped,
     missingRequired,
-    uploadable: rows.length > 0 && missingRequired.length === 0,
+    // 빠진 상품이 있으면 "그대로 등록 가능"이 아니다 — 사람이 먼저 상품명을 고쳐야 한다
+    uploadable: rows.length > 0 && missingRequired.length === 0 && dropped.length === 0,
     pricing: priced,
     label: spec.label,
     fileTag: spec.fileTag,

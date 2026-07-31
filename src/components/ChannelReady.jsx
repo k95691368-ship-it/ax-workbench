@@ -120,7 +120,9 @@ export default function ChannelReady({ items, fileBase = '상품등록', unsafeC
               <div className="channel-head">
                 <strong>{b.label}</strong>
                 <span className="channel-state">
-                  {!b.uploadable
+                  {b.dropped?.length > 0
+                    ? `상품 ${b.dropped.length}개 제외됨`
+                    : !b.uploadable
                     ? `필수값 ${b.missingRequired.length}칸 비어 있음`
                     : blocked > 0
                       ? `${blocked}건 확인 필요`
@@ -148,9 +150,16 @@ export default function ChannelReady({ items, fileBase = '상품등록', unsafeC
                   </>
                 )}
               </p>
-              {!b.uploadable && (
+              {b.missingRequired.length > 0 && (
                 <p className="channel-missing">
                   채워야 등록됩니다: {b.missingRequired.map((m) => m.header).join(', ')}
+                </p>
+              )}
+              {b.dropped?.length > 0 && (
+                <p className="channel-missing">
+                  상품명이 남지 않아 제외한 상품 {b.dropped.length}개:{' '}
+                  {b.dropped.map((d) => d.name).join(', ')} — 특수문자·홍보 문구만으로 된 상품명입니다.
+                  원문을 고친 뒤 다시 내려받으세요.
                 </p>
               )}
               <div className="channel-actions">

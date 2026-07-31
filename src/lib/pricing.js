@@ -42,6 +42,11 @@ export function recommendPrice(channelId, { cost = 0, marginRate = 0, shipping =
   const denom = 1 - f - marginRate
   const base = Number(cost) + Number(shipping)
   if (!(base > 0)) return { ok: false, reason: '원가를 입력하면 채널별 권장 판매가를 계산합니다.' }
+  // 음수 마진은 "원가보다 싸게 팔겠다"는 뜻이다. 식은 성립하므로 원가 아래 가격이 조용히
+  // 나오는데, 그 숫자가 등록 양식의 판매가 칸으로 그대로 들어간다. 계산이 되는 것과
+  // 말이 되는 것은 다르므로, 사용자가 의도한 값인지 되묻는다.
+  if (marginRate < 0)
+    return { ok: false, reason: '목표 마진율이 음수입니다 — 원가보다 싸게 파는 가격이 나옵니다. 값을 확인해 주세요.', feeRate: f }
   if (denom <= 0) {
     return {
       ok: false,
