@@ -20,14 +20,34 @@ const CODE_LABEL = {
 
 export default function ChannelReady({ items, fileBase = '상품등록', unsafeCount = 0 }) {
   const [open, setOpen] = useState(null)
+  // 사람만 아는 값 — 한 번 입력하면 네 채널 양식이 모두 채워진다.
+  // 판매가는 사람이 아니라 계산으로 나온다: 채널마다 수수료가 다르므로 같은 마진을
+  // 지키려면 판매가도 달라야 한다(src/lib/pricing.js).
+  const [supply, setSupply] = useState({ cost: '', marginRate: 30, shipping: '', stock: 100, origin: '', maker: '', brand: '' })
+  const setField = (k) => (e) => setSupply((s) => ({ ...s, [k]: e.target.value }))
+
+  const pricing = useMemo(() => {
+    const cost = Number(supply.cost)
+    if (!(cost > 0)) return null
+    return { cost, marginRate: (Number(supply.marginRate) || 0) / 100, shipping: Number(supply.shipping) || 0 }
+  }, [supply.cost, supply.marginRate, supply.shipping])
+
   const built = useMemo(
-    () => CHANNEL_RULES.map((c) => ({ id: c.id, rule: c, ...channelCsv(c.id, items) })),
-    [items]
+    () =>
+      CHANNEL_RULES.map((c) => ({
+        id: c.id,
+        rule: c,
+        ...channelCsv(c.id, items, {
+          pricing,
+          defaults: { stock: supply.stock, origin: supply.origin, maker: supply.maker, brand: supply.brand },
+        }),
+      })),
+    [items, pricing, supply.stock, supply.origin, supply.maker, supply.brand]
   )
   const total = built[0]?.rows.length || 0
   if (total === 0) return null
 
-  const cleanChannels = built.filter((b) => b.adjusted.length === 0 && b.blocked.length === 0).length
+  const uploadable = built.filter((b) => b.uploadable).length
 
   function download(b) {
     downloadFile(`${safeFileName(fileBase)}_${b.fileTag}.csv`, b.csv, 'text/csv;charset=utf-8')
@@ -39,9 +59,46 @@ export default function ChannelReady({ items, fileBase = '상품등록', unsafeC
       <p className="channel-sub">
         상품 {total}개를 {CHANNEL_RULES.length}개 채널 규정으로 검사했습니다. 규정에 걸리는 상품명은
         채널별로 자동 교정한 뒤 각 채널의 등록 양식으로 내보냅니다 —{' '}
-        {cleanChannels === CHANNEL_RULES.length
-          ? '교정 없이 모든 채널에 그대로 올릴 수 있습니다.'
-          : `${CHANNEL_RULES.length - cleanChannels}개 채널은 교정이 필요했습니다.`}
+        {uploadable === CHANNEL_RULES.length
+          ? '필수 항목까지 채워져 지금 바로 올릴 수 있습니다.'
+          : `다만 아래 필수 항목을 채우기 전에는 업로드해도 반려됩니다. 상품명 규정과 등록 필수값은 다른 문제입니다.`}
+      </p>
+
+      {/* 사람만 아는 값은 한 번만 받는다. 판매가는 받지 않는다 — 계산으로 나온다. */}
+      <div className="channel-supply">
+        <label>
+          원가(원)
+          <input inputMode="numeric" value={supply.cost} onChange={setField('cost')} placeholder="예: 12000" />
+        </label>
+        <label>
+          목표 마진율(%)
+          <input inputMode="numeric" value={supply.marginRate} onChange={setField('marginRate')} />
+        </label>
+        <label>
+          배송비(원)
+          <input inputMode="numeric" value={supply.shipping} onChange={setField('shipping')} placeholder="0" />
+        </label>
+        <label>
+          재고수량
+          <input inputMode="numeric" value={supply.stock} onChange={setField('stock')} />
+        </label>
+        <label>
+          원산지
+          <input value={supply.origin} onChange={setField('origin')} placeholder="예: 국내산" />
+        </label>
+        <label>
+          제조사 · 브랜드
+          <input value={supply.maker} onChange={setField('maker')} placeholder="제조사" />
+        </label>
+        <label className="channel-supply-brand">
+          <span className="sr-only">브랜드</span>
+          <input value={supply.brand} onChange={setField('brand')} placeholder="브랜드" />
+        </label>
+      </div>
+      <p className="channel-sub">
+        원가를 넣으면 채널별 <strong>권장 판매가</strong>를 역산합니다. 수수료가 채널마다 다르므로
+        같은 마진을 지키려면 판매가도 달라야 합니다 — 눈대중으로 맞추면 수수료가 높은 채널에서
+        조용히 마진이 깎입니다.
       </p>
 
       {unsafeCount > 0 && (
@@ -55,20 +112,47 @@ export default function ChannelReady({ items, fileBase = '상품등록', unsafeC
         {built.map((b) => {
           const fixes = b.adjusted.length
           const blocked = b.blocked.length
-          const state = blocked > 0 ? 'blocked' : fixes > 0 ? 'fixed' : 'ok'
+          // 상태는 두 축이다: 상품명이 규정을 통과했는가 / 등록 필수값이 채워졌는가.
+          // 한 축만 보고 '등록 가능'이라고 말하면 도구가 거짓말을 한다.
+          const state = blocked > 0 || !b.uploadable ? 'blocked' : fixes > 0 ? 'fixed' : 'ok'
           return (
             <div className={`channel-card channel-${state}`} key={b.id}>
               <div className="channel-head">
                 <strong>{b.label}</strong>
                 <span className="channel-state">
-                  {state === 'ok' ? '그대로 등록 가능' : state === 'fixed' ? `${fixes}건 자동 교정` : `${blocked}건 확인 필요`}
+                  {!b.uploadable
+                    ? `필수값 ${b.missingRequired.length}칸 비어 있음`
+                    : blocked > 0
+                      ? `${blocked}건 확인 필요`
+                      : fixes > 0
+                        ? `${fixes}건 자동 교정 후 등록 가능`
+                        : '지금 바로 등록 가능'}
                 </span>
               </div>
               <p className="channel-rule">
                 상품명 {b.rule.maxLen}자 이내
                 {b.rule.recommendLen ? ` · 권장 ${b.rule.recommendLen}자` : ''} · 같은 단어{' '}
                 {b.rule.maxRepeat + 1}회 이상 반복 불가
+                {b.pricing?.ok && (
+                  <>
+                    <br />
+                    수수료 {(b.pricing.feeRate * 100).toFixed(1)}% · 권장 판매가{' '}
+                    <strong>{b.pricing.price.toLocaleString('ko-KR')}원</strong> · 실수령{' '}
+                    {b.pricing.profit.toLocaleString('ko-KR')}원 (마진 {(b.pricing.marginRate * 100).toFixed(1)}%)
+                  </>
+                )}
+                {b.pricing && !b.pricing.ok && (
+                  <>
+                    <br />
+                    <em>{b.pricing.reason}</em>
+                  </>
+                )}
               </p>
+              {!b.uploadable && (
+                <p className="channel-missing">
+                  채워야 등록됩니다: {b.missingRequired.map((m) => m.header).join(', ')}
+                </p>
+              )}
               <div className="channel-actions">
                 <button type="button" className="btn-ghost" onClick={() => download(b)}>
                   등록 양식 CSV

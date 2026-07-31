@@ -215,3 +215,50 @@ describe('채널 등록 양식 내보내기', () => {
     expect(() => buildChannelRows('없는채널', items)).toThrow(/알 수 없는 채널/)
   })
 })
+
+describe('도구가 자기 산출물에 대해 사실대로 말한다', () => {
+  const listing = {
+    titles: ['데일리 장편한 유산균 30포 19종 프로바이오틱스 아연'],
+    search_keywords: ['유산균'],
+    tags: ['유산균'],
+    category_paths: ['식품 > 건강기능식품 > 유산균'],
+  }
+  const items = [{ name: '유산균 30포', listing }]
+
+  it('필수값이 비어 있으면 등록 가능이라고 말하지 않는다', () => {
+    // 예전에는 판매가·재고·원산지가 통째로 비어 있는데도 "그대로 등록 가능"이라고 했다.
+    // 그 파일을 올리면 통째로 반려된다 — 도구가 자기 산출물을 두고 거짓말한 셈이다.
+    const out = channelCsv('smartstore', items)
+    expect(out.uploadable).toBe(false)
+    expect(out.missingRequired.map((m) => m.header)).toEqual(
+      expect.arrayContaining(['판매가', '재고수량', '원산지', '제조사'])
+    )
+  })
+
+  it('원가와 사람만 아는 값을 넣으면 채워지고 등록 가능이 된다', () => {
+    const out = channelCsv('smartstore', items, {
+      pricing: { cost: 12000, marginRate: 0.3, shipping: 0 },
+      defaults: { stock: 100, origin: '국내산', maker: '한빛제약', brand: '데일리' },
+    })
+    expect(out.uploadable).toBe(true)
+    expect(out.missingRequired).toEqual([])
+    expect(Number(out.rows[0][out.headers.indexOf('판매가')])).toBeGreaterThan(12000)
+  })
+
+  it('채널마다 수수료가 다르므로 같은 마진의 권장 판매가도 다르다', () => {
+    const opts = { pricing: { cost: 12000, marginRate: 0.3, shipping: 0 }, defaults: { stock: 1 } }
+    const naver = channelCsv('smartstore', items, opts).pricing.price
+    const coupang = channelCsv('coupang', items, opts).pricing.price
+    expect(coupang).toBeGreaterThan(naver) // 쿠팡 수수료가 더 높다
+  })
+
+  it('수수료가 목표 마진을 다 먹으면 숫자를 지어내지 않고 이유를 말한다', () => {
+    const out = channelCsv('coupang', items, {
+      pricing: { cost: 12000, marginRate: 0.95, shipping: 0 },
+      defaults: { stock: 1 },
+    })
+    expect(out.pricing.ok).toBe(false)
+    expect(out.pricing.reason).toContain('마진')
+    expect(out.uploadable).toBe(false)
+  })
+})
