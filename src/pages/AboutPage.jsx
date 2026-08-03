@@ -65,8 +65,8 @@ const MAPPING = [
 const PROCESS = [
   {
     step: '기획',
-    title: '공고를 분해하는 것부터',
-    body: '채용공고의 담당업무 3줄을 기능 명세로 바꾸고, 자격요건("AI로 상품페이지 제작 가능")을 1순위 기능으로 배치했습니다. 회사가 건강기능식품 유통사라는 점에서 표시광고법 리스크 관리를 차별화 포인트로 잡았습니다.',
+    title: '업무를 분해하는 것부터',
+    body: '온라인 유통 담당자의 반복 업무 세 줄을 기능 명세로 바꾸고, "AI로 상품페이지 제작"을 1순위 기능으로 배치했습니다. 건강기능식품처럼 표시광고 규제가 있는 카테고리를 상정해, 규제 리스크 관리를 차별화 포인트로 잡았습니다.',
   },
   {
     step: '설계',
@@ -152,20 +152,20 @@ export default function AboutPage() {
     <div className="tool-page about-page">
       <header className="tool-header">
         <span className="tool-tag">이 포트폴리오에 대하여</span>
-        <h1>공고의 담당업무를, 동작하는 제품으로</h1>
+        <h1>담당업무를, 동작하는 제품으로</h1>
         <p>
-          이 사이트는 "AI 활용 및 자동화 담당자" 채용공고 하나를 위해 만든 맞춤 포트폴리오입니다.
-          이력서 문장 대신, 입사 후 할 일을 미리 만들어 보여드리는 방식을 택했습니다.
+          이 사이트는 "AI 활용 및 자동화 담당자"가 실제로 하는 일을 그대로 만들어 본 포트폴리오입니다.
+          할 수 있다는 문장 대신, 그 일을 미리 해서 보여드리는 방식을 택했습니다.
         </p>
       </header>
 
       <section className="about-section">
-        <h2>공고 요건 체크리스트 — 3분 검증용</h2>
+        <h2>요건 체크리스트 — 3분 검증용</h2>
         <div className="req-table-wrap">
           <table className="req-table">
             <thead>
               <tr>
-                <th>공고 요건</th>
+                <th>요건</th>
                 <th>증명 기능</th>
                 <th>구현 근거</th>
               </tr>
@@ -314,7 +314,7 @@ export default function AboutPage() {
       </section>
 
       <section className="about-section">
-        <h2>공고 담당업무 ↔ 기능 매핑</h2>
+        <h2>담당업무 ↔ 기능 매핑</h2>
         <div className="about-mapping">
           {MAPPING.map((m) => (
             <article className="about-map-card" key={m.duty}>
