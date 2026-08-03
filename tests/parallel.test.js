@@ -227,7 +227,7 @@ describe('채널이 조용히 사라지지 않는다', () => {
 })
 
 describe('필수 문구는 채널별로 검사한다 (채널은 각각 발행되는 산출물)', () => {
-  const brand = { name: '다솜', required: ['의약품이 아닙니다'] }
+  const brand = { name: '온담', required: ['의약품이 아닙니다'] }
 
   it('한 채널에만 있으면 통과로 표시하지 않는다', () => {
     const results = [

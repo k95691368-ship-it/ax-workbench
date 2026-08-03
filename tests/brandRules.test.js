@@ -39,7 +39,7 @@ describe('isBrandActive / sanitizeBrand', () => {
 
   it('서버는 빈 룰북을 null로 처리해 프롬프트를 건드리지 않는다', () => {
     expect(sanitizeBrand({ name: '   ' })).toBeNull()
-    expect(sanitizeBrand({ name: '다솜' })?.name).toBe('다솜')
+    expect(sanitizeBrand({ name: '온담' })?.name).toBe('온담')
   })
 })
 
@@ -50,8 +50,8 @@ describe('brandPrompt (룰북 → 프롬프트 지시문)', () => {
   })
 
   it('채워진 항목만 지시문에 넣는다', () => {
-    const prompt = brandPrompt({ name: '다솜', banned: ['초특가'] })
-    expect(prompt).toContain('다솜')
+    const prompt = brandPrompt({ name: '온담', banned: ['초특가'] })
+    expect(prompt).toContain('온담')
     expect(prompt).toContain('초특가')
     expect(prompt).not.toContain('주 고객층')
   })
@@ -93,7 +93,7 @@ describe('브랜드 금지어가 표시광고 점검에 함께 걸린다', () =>
 })
 
 describe('필수 표기 문구는 결과물에 한 번만', () => {
-  const brand = { name: '다솜', required: ['본 제품은 식품이며 의약품이 아닙니다'] }
+  const brand = { name: '온담', required: ['본 제품은 식품이며 의약품이 아닙니다'] }
 
   it('기본은 "반드시 포함"을 지시한다', () => {
     expect(brandPrompt(brand)).toContain('반드시 포함')
@@ -108,7 +108,7 @@ describe('필수 표기 문구는 결과물에 한 번만', () => {
   })
 
   it('필수 문구가 없으면 두 버전이 같다', () => {
-    const only = { name: '다솜', tone: '담백하게' }
+    const only = { name: '온담', tone: '담백하게' }
     expect(brandPrompt(only, { required: false })).toBe(brandPrompt(only))
   })
 })
