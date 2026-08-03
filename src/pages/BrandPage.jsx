@@ -20,7 +20,7 @@ const TONE_PRESETS = [
 ]
 
 const SAMPLE = {
-  name: '다솜',
+  name: '온담',
   tone: '정중한 합니다체. 과장 없이 담백하게, 감탄사·느낌표 남발 금지',
   audience: '30~50대 여성. 가족 건강을 챙기는 주 구매자',
   banned: ['초특가', '역대급', '완판임박', '지금 안 사면 손해', '가성비 갑'],
@@ -125,7 +125,7 @@ export default function BrandPage() {
         <form className="tool-form" onSubmit={onSave}>
           <label>
             브랜드명
-            <input value={form.name} onChange={set('name')} placeholder="예) 다솜" maxLength={40} />
+            <input value={form.name} onChange={set('name')} placeholder="예) 온담" maxLength={40} />
           </label>
 
           <label>

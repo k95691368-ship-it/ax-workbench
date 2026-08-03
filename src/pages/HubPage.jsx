@@ -73,7 +73,7 @@ export default function HubPage() {
   return (
     <div className="hub">
       <section className="hub-hero">
-        <p className="hub-eyebrow">AI 업무자동화 취업 포트폴리오 — 지금 실제로 동작합니다</p>
+        <p className="hub-eyebrow">AI 업무자동화 워크벤치 — 지금 실제로 동작합니다</p>
         <h1>
           반복 업무는 AI에게,
           <br />

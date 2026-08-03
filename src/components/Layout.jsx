@@ -62,10 +62,11 @@ export default function Layout() {
             <Link to="/edu">직원 AI 교육 가이드</Link>
           </div>
           <div className="footer-col">
-            <p className="footer-title">이 포트폴리오</p>
+            <p className="footer-title">이 도구</p>
             <p className="footer-text">
-              온라인 유통사의 "AI 활용 및 자동화 담당자" 직무를 위해 만든 취업 포트폴리오입니다.
-              채용공고의 담당업무 3가지를 실제 동작하는 도구로 구현했습니다.
+              온라인 유통의 반복 업무 — 상품등록·콘텐츠 제작·매출분석 — 을 동작하는 도구로
+              구현했습니다. AI가 초안을 만들고, 규정 위반은 기계적으로 걸러내고,
+              최종 결정은 사람이 합니다.
             </p>
           </div>
           <div className="footer-col">
